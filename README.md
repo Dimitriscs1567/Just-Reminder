@@ -21,11 +21,11 @@ screen widget, or with the **Acknowledge** button on its notification.
 
 Each reminder has:
 
-| Field | Required | Where it is shown |
-| --- | --- | --- |
-| **Name** | yes | In the app (lists, details) |
-| **Display name** | yes | On the home screen widget and as the notification title |
-| **Description** | no | In the app and as the notification text |
+| Field            | Required | Where it is shown                                       |
+| ---------------- | -------- | ------------------------------------------------------- |
+| **Name**         | yes      | In the app (lists, details)                             |
+| **Display name** | yes      | On the home screen widget and as the notification title |
+| **Description**  | no       | In the app and as the notification text                 |
 
 ### Scheduling
 
@@ -33,10 +33,10 @@ Each reminder has:
 
 - **Once** — on a specific date.
 - **Repeat**
-  - **Daily** — every *N* days (every day, every 3 days, …).
-  - **Weekly** — every *N* weeks on the weekdays you pick (e.g. Mon–Fri, or
+  - **Daily** — every _N_ days (every day, every 3 days, …).
+  - **Weekly** — every _N_ weeks on the weekdays you pick (e.g. Mon–Fri, or
     only Sat & Sun every 2 weeks).
-  - **Monthly** — every *N* months on a day of the month (e.g. the 15th). A
+  - **Monthly** — every _N_ months on a day of the month (e.g. the 15th). A
     day that a month doesn't have (29th–31st) falls on that month's **last
     day** (e.g. "the 31st" fires on Apr 30 and Feb 28/29).
   - Starts on a start date, with an optional **end date**.
@@ -46,13 +46,13 @@ Each reminder has:
 - **Fixed time** — e.g. 09:00.
 - **Time range** — e.g. 09:00–17:00. An end time before the start time runs
   past midnight (e.g. 22:00–02:00). Inside the range, choose:
-  - **Interval** — every *X* minutes from the start of the range, until the
-    range ends, or until the optional *max activations* is reached.
-  - **Random** — exactly *N* activations at random times. The range is split
-    into *N* equal slots with one random time in each, so activations never
+  - **Interval** — every _X_ minutes from the start of the range, until the
+    range ends, or until the optional _max activations_ is reached.
+  - **Random** — exactly _N_ activations at random times. The range is split
+    into _N_ equal slots with one random time in each, so activations never
     bunch up. The times are fixed per day, so they don't move when the app
     restarts.
-- *Max activations* always counts **per window** (e.g. per day).
+- _Max activations_ always counts **per window** (e.g. per day).
 - In interval mode an activation that lands exactly on the range end counts
   (09:00–17:00 every 60 min → 9 activations).
 - A one-time reminder with a time range stays within its date (or runs past
@@ -82,8 +82,8 @@ times, so you can check it is right.
 
 - The app asks to send notifications right after you save a reminder; a
   banner on the home screen offers it again if notifications are off.
-- **Android 12+:** for notifications at the exact minute, allow *Alarms &
-  reminders* (the banner opens the setting). Without it Android may deliver
+- **Android 12+:** for notifications at the exact minute, allow _Alarms &
+  reminders_ (the banner opens the setting). Without it Android may deliver
   them a few minutes late.
 
 ### Pause, archive and delete
@@ -106,10 +106,10 @@ times, so you can check it is right.
   reminder it tracks. Add several widgets to track several reminders.
 - Shows the reminder's display name, a thumbs up (green) or thumbs down
   (red), and how many activations were missed while one is waiting.
-- *Android:* **1×1 by default**: the thumb with a small missed-count bubble
+- _Android:_ **1×1 by default**: the thumb with a small missed-count bubble
   and the display name below it. Resize it to about 2×2 or larger for a
   bigger thumb and a **"N missed"** badge.
-- *iOS:* the small widget size (iOS has no 1×1 home screen widgets), with a
+- _iOS:_ the small widget size (iOS has no 1×1 home screen widgets), with a
   **"N missed"** badge.
 - Tap the thumbs down to acknowledge right from the home screen; tap
   anywhere else on the widget to open the reminder.
@@ -120,18 +120,18 @@ times, so you can check it is right.
 
 **Adding the widget**
 
-- *Android:* long-press the home screen → **Widgets** → **Just Reminder** →
-  drag (or tap → Add) the *Reminder* widget, then choose the reminder.
-- *iOS (17+):* long-press the Home Screen → **Edit** → **Add Widget** →
+- _Android:_ long-press the home screen → **Widgets** → **Just Reminder** →
+  drag (or tap → Add) the _Reminder_ widget, then choose the reminder.
+- _iOS (17+):_ long-press the Home Screen → **Edit** → **Add Widget** →
   **Just Reminder**, then long-press the widget → **Edit Widget** → choose the
   reminder.
 
 ### Screens
 
 - **Home** — a summary card at the top ("All clear" with the next reminder,
-  or "2 reminders need you"), then *Needs attention* (waiting reminders, each
-  with a big **Acknowledge** button and its missed count), *Coming up*
-  (sorted by next activation) and *Paused*.
+  or "2 reminders need you"), then _Needs attention_ (waiting reminders, each
+  with a big **Acknowledge** button and its missed count), _Coming up_
+  (sorted by next activation) and _Paused_.
 - **New / edit reminder** — Details (name, display name, description), When
   (once or repeat: daily / weekly with weekday picker / monthly, every N,
   start and optional end date), Time (fixed time or range with interval
@@ -153,16 +153,16 @@ is in English; 12/24-hour time follows the phone's setting.
 
 ## Tech stack
 
-| Concern | Package |
-| --- | --- |
-| UI | Flutter 3.47 with [`material_ui`](https://pub.dev/packages/material_ui) (Flutter's Material library, now a separate package) |
-| State management | [`flutter_riverpod`](https://pub.dev/packages/flutter_riverpod) 3 |
-| Navigation | [`go_router`](https://pub.dev/packages/go_router) |
-| Local database | [`sembast`](https://pub.dev/packages/sembast) |
-| Home screen widgets | [`home_widget`](https://pub.dev/packages/home_widget) (+ native Kotlin / Swift widget code) |
-| Notifications | [`flutter_local_notifications`](https://pub.dev/packages/flutter_local_notifications) + [`timezone`](https://pub.dev/packages/timezone) |
-| Material You colors | [`dynamic_color`](https://pub.dev/packages/dynamic_color) |
-| Helpers | [`path_provider`](https://pub.dev/packages/path_provider), [`intl`](https://pub.dev/packages/intl) |
+| Concern             | Package                                                                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| UI                  | Flutter 3.47 with [`material_ui`](https://pub.dev/packages/material_ui) (Flutter's Material library, now a separate package)            |
+| State management    | [`flutter_riverpod`](https://pub.dev/packages/flutter_riverpod) 3                                                                       |
+| Navigation          | [`go_router`](https://pub.dev/packages/go_router)                                                                                       |
+| Local database      | [`sembast`](https://pub.dev/packages/sembast)                                                                                           |
+| Home screen widgets | [`home_widget`](https://pub.dev/packages/home_widget) (+ native Kotlin / Swift widget code)                                             |
+| Notifications       | [`flutter_local_notifications`](https://pub.dev/packages/flutter_local_notifications) + [`timezone`](https://pub.dev/packages/timezone) |
+| Material You colors | [`dynamic_color`](https://pub.dev/packages/dynamic_color)                                                                               |
+| Helpers             | [`path_provider`](https://pub.dev/packages/path_provider), [`intl`](https://pub.dev/packages/intl)                                      |
 
 ## Getting started
 
@@ -196,7 +196,7 @@ flutter build apk        # Android release build (signed with the debug key)
 - Core library desugaring is enabled (required by
   `flutter_local_notifications`).
 - Permissions: `POST_NOTIFICATIONS` (asked at runtime), `SCHEDULE_EXACT_ALARM`
-  (the user grants *Alarms & reminders*), `RECEIVE_BOOT_COMPLETED` (to
+  (the user grants _Alarms & reminders_), `RECEIVE_BOOT_COMPLETED` (to
   re-arm notifications and widget refreshes after a reboot).
 - The widget is native (`android/app/src/main/kotlin/.../ReminderWidgetProvider.kt`
   with RemoteViews layouts in `res/layout`: `reminder_widget_small.xml` for
@@ -226,8 +226,8 @@ anything it reports.
 
 1. Run `flutter pub get`, then open `ios/Runner.xcworkspace` in Xcode.
 2. **File → New → Target… → Widget Extension.** Product name
-   **`ReminderWidget`**. Uncheck *Include Live Activity*, *Include Control*
-   and *Include Configuration App Intent*. Finish (and *Activate* the
+   **`ReminderWidget`**. Uncheck _Include Live Activity_, _Include Control_
+   and _Include Configuration App Intent_. Finish (and _Activate_ the
    scheme if asked).
 3. Xcode adds template files to `ios/ReminderWidget/`. **Delete** its
    `ReminderWidget.swift` and `ReminderWidgetBundle.swift` (Move to Trash);
@@ -236,30 +236,30 @@ anything it reports.
    `ReminderConfiguration.swift`, `AcknowledgeReminderIntent.swift`,
    `NotificationCleanup.swift`, `WidgetStore.swift` — belong to the
    **ReminderWidgetExtension** target (Xcode 16 folders pick them up
-   automatically; otherwise *Add Files to "Runner"…* with only that target
+   automatically; otherwise _Add Files to "Runner"…_ with only that target
    ticked).
-4. Select the **ReminderWidgetExtension** target → *General* → *Minimum
-   Deployments*: **iOS 17.0** (interactive and configurable widgets).
-5. **Version:** in the extension's *Build Settings* set *Marketing Version*
-   (`MARKETING_VERSION`) to `$(FLUTTER_BUILD_NAME)` and *Current Project
-   Version* (`CURRENT_PROJECT_VERSION`) to `$(FLUTTER_BUILD_NUMBER)`, and in
-   *Project → Info → Configurations* base the extension's Debug
+4. Select the **ReminderWidgetExtension** target → _General_ → _Minimum
+   Deployments_: **iOS 17.0** (interactive and configurable widgets).
+5. **Version:** in the extension's _Build Settings_ set _Marketing Version_
+   (`MARKETING_VERSION`) to `$(FLUTTER_BUILD_NAME)` and _Current Project
+   Version_ (`CURRENT_PROJECT_VERSION`) to `$(FLUTTER_BUILD_NUMBER)`, and in
+   _Project → Info → Configurations_ base the extension's Debug
    configuration on `Flutter/Debug.xcconfig` and Release/Profile on
    `Flutter/Release.xcconfig`, so its version always matches the app's.
 6. **Signing and App Groups** (needs a paid Apple Developer account): for
-   both the **Runner** and **ReminderWidgetExtension** targets, *Signing &
-   Capabilities* → pick your *Team*, then *+ Capability* → *App Groups* →
+   both the **Runner** and **ReminderWidgetExtension** targets, _Signing &
+   Capabilities_ → pick your _Team_, then _+ Capability_ → _App Groups_ →
    add **`group.com.example.justReminder`**. It must match `iosAppGroupId`
    in `lib/src/core/app_constants.dart` and `WidgetStore.appGroup`. If Xcode
    won't register the `com.example.*` identifiers, change the bundle ID and
    the App Group (in Xcode and in both places above); the extension's bundle
    ID must stay `<app bundle ID>.ReminderWidget`.
 7. Build and run (`flutter run`).
-   - A build cycle involving *Thin Binary*: select the **Runner** target →
-     *Build Phases* and drag *Thin Binary* to the bottom of the list.
+   - A build cycle involving _Thin Binary_: select the **Runner** target →
+     _Build Phases_ and drag _Thin Binary_ to the bottom of the list.
    - Actor-isolation errors in the widget code: newer Xcode templates may
-     set the extension's *Default Actor Isolation* to *MainActor*; set it
-     to *nonisolated* (Build Settings → Swift Compiler – Concurrency) and
+     set the extension's _Default Actor Isolation_ to _MainActor_; set it
+     to _nonisolated_ (Build Settings → Swift Compiler – Concurrency) and
      keep the Swift 5 language mode.
 
 **First test on an iPhone** (the parts that can't be checked on Windows):
@@ -339,14 +339,3 @@ android/app/src/main/       widget provider + configuration activity
                             (Kotlin), widget layouts and resources
 ios/ReminderWidget/         WidgetKit extension sources (Swift)
 ```
-
-## Roadmap
-
-- [x] Project scaffold, dependencies, Android build configuration
-- [x] Reminder model, schedule engine and sembast storage
-- [x] Theme and screens (list, editor with schedule preview, details &
-  history, archive)
-- [x] Notifications with Acknowledge action
-- [x] Home screen widgets — Android (tested on the emulator) and iOS
-  (written; needs the one-time Xcode setup above)
-- [x] Final tests, documentation and release-build check
