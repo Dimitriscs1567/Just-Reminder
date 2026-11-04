@@ -99,12 +99,30 @@ times, so you can check it is right.
   "Deleted" label instead of the thumb; tap it (Android) or long-press → Edit
   Widget (iOS) to pick another reminder.
 
+### Screens
+
+- **Home** — a summary card at the top ("All clear" with the next reminder,
+  or "2 reminders need you"), then *Needs attention* (waiting reminders, each
+  with a big **Acknowledge** button and its missed count), *Coming up*
+  (sorted by next activation) and *Paused*.
+- **New / edit reminder** — Details (name, display name, description), When
+  (once or repeat: daily / weekly with weekday picker / monthly, every N,
+  start and optional end date), Time (fixed time or range with interval
+  presets or random count) and a live **preview** of the next activations.
+  The display name fills itself from the name until you change it. Closing
+  with unsaved changes asks before discarding them.
+- **Reminder details** — status panel (acknowledge, resume, or restore),
+  schedule with a pause switch, the next activations, and the full history
+  grouped by day. Archive and delete are in the ⋮ menu.
+- **Archive** — archived reminders; open one to restore or delete it.
+
 ### Look and feel
 
 Material 3 with **Material You**: on Android 12+ the app uses your wallpaper
 colors; elsewhere it falls back to an indigo & teal palette. Light and dark
 mode follow the phone's setting. Positive is always green and negative always
-red. The UI is in English; 12/24-hour time follows the phone's setting.
+red (they are not tinted by the wallpaper, so red never turns pink). The UI
+is in English; 12/24-hour time follows the phone's setting.
 
 ## Tech stack
 
@@ -183,11 +201,14 @@ lib/
                             missed/acknowledged state machine, validation
     data/                   sembast database and repository
     services/               ReminderService (all changes + sync), ack log
-    state/                  Riverpod providers
+    state/                  Riverpod providers (data, clock, view models)
     ui/
+      theme/                Material You theme + green/red status colors
       routing/              go_router configuration
-      screens/              app screens
-test/                       unit and widget tests (core, domain, services)
+      components/           thumb, cards, steppers, pickers, …
+      screens/              home, editor, details, archive
+      sync_scope.dart       keeps data current while the app runs
+test/                       unit and widget tests (core, domain, services, ui)
 android/, ios/              platform projects (native widget code lives here)
 ```
 
@@ -195,7 +216,7 @@ android/, ios/              platform projects (native widget code lives here)
 
 - [x] Project scaffold, dependencies, Android build configuration
 - [x] Reminder model, schedule engine and sembast storage
-- [ ] Theme and screens (list, editor with schedule preview, details &
+- [x] Theme and screens (list, editor with schedule preview, details &
   history, archive)
 - [ ] Notifications with Acknowledge action
 - [ ] Home screen widgets (Android + iOS)

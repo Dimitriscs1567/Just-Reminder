@@ -60,8 +60,13 @@ final reminderProvider = StreamProvider.autoDispose.family<Reminder?, String>(
   (ref, id) => ref.watch(reminderRepositoryProvider).watchReminder(id),
 );
 
-/// One reminder's history, newest first.
+/// A reminder's most recent [HistoryQuery.limit] history entries, newest
+/// first.
 final historyProvider = StreamProvider.autoDispose
-    .family<List<ActivationRecord>, String>(
-      (ref, id) => ref.watch(reminderRepositoryProvider).watchHistory(id),
+    .family<List<ActivationRecord>, HistoryQuery>(
+      (ref, query) => ref
+          .watch(reminderRepositoryProvider)
+          .watchHistory(query.reminderId, limit: query.limit),
     );
+
+typedef HistoryQuery = ({String reminderId, int limit});

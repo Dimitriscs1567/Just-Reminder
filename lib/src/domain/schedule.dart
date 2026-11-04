@@ -188,6 +188,8 @@ final class RepeatRecurrence extends Recurrence {
     'dayOfMonth': dayOfMonth,
   };
 
+  /// Equality is semantic: [weekdays] only matter for weekly and
+  /// [dayOfMonth] only for monthly recurrences.
   @override
   bool operator ==(Object other) =>
       other is RepeatRecurrence &&
@@ -195,9 +197,10 @@ final class RepeatRecurrence extends Recurrence {
       other.every == every &&
       other.startDate == startDate &&
       other.endDate == endDate &&
-      other.dayOfMonth == dayOfMonth &&
-      other.weekdays.length == weekdays.length &&
-      other.weekdays.containsAll(weekdays);
+      (unit != RepeatUnit.week ||
+          (other.weekdays.length == weekdays.length &&
+              other.weekdays.containsAll(weekdays))) &&
+      (unit != RepeatUnit.month || other.dayOfMonth == dayOfMonth);
 
   @override
   int get hashCode => Object.hash(
@@ -205,8 +208,8 @@ final class RepeatRecurrence extends Recurrence {
     every,
     startDate,
     endDate,
-    dayOfMonth,
-    Object.hashAllUnordered(weekdays),
+    unit == RepeatUnit.week ? Object.hashAllUnordered(weekdays) : 0,
+    unit == RepeatUnit.month ? dayOfMonth : 0,
   );
 }
 
@@ -319,18 +322,24 @@ final class RangeTiming extends Timing {
     'maxActivations': maxActivations,
   };
 
+  /// Equality is semantic: [intervalMinutes] only matters in interval mode.
   @override
   bool operator ==(Object other) =>
       other is RangeTiming &&
       other.start == start &&
       other.end == end &&
       other.mode == mode &&
-      other.intervalMinutes == intervalMinutes &&
+      (mode == RangeMode.random || other.intervalMinutes == intervalMinutes) &&
       other.maxActivations == maxActivations;
 
   @override
-  int get hashCode =>
-      Object.hash(start, end, mode, intervalMinutes, maxActivations);
+  int get hashCode => Object.hash(
+    start,
+    end,
+    mode,
+    mode == RangeMode.random ? 0 : intervalMinutes,
+    maxActivations,
+  );
 }
 
 const Object _unset = Object();

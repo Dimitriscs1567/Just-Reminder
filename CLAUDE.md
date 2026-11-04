@@ -58,6 +58,16 @@ Dart 3.13 allows initializing formals for private named parameters
 (`ReminderService({required this._repository})`, called as
 `repository:`); the linter (`prefer_initializing_formals`) asks for them.
 
+More gotchas:
+- intl's 12-hour format separates AM/PM with a narrow no-break space
+  (`'9:30 PM'`).
+- `x ?? const []` infers `List<dynamic>`; write `const <ReminderView>[]`.
+- Widget tests: `find.byType(FilledButton)` doesn't match
+  `FilledButton.icon` (a subclass) — find by text; `enterText` doesn't pump,
+  so pump before testing anything that depends on the rebuild (e.g.
+  `PopScope.canPop`).
+- On Git Bash, `adb` device paths need `MSYS_NO_PATHCONV=1`.
+
 ## Product decisions
 
 Agreed with the user on 2026-11-04. These are the spec.
@@ -152,6 +162,17 @@ Reasonable defaults that were reported to the user; ask before changing the
   period.
 - A paused reminder whose schedule can no longer activate (e.g. its one-time
   date passed while paused) is archived like any finished reminder.
+- UI defaults: a new reminder starts as "repeat daily at the next full
+  hour"; the display name follows the name until the user edits it;
+  interval presets 5 min – 3 h plus "Custom…" (minutes); the editor
+  preview shows 8 activations, details shows 6; history loads 30 at a
+  time.
+- Archive's snackbar offers **Undo** only when nothing was waiting (undo
+  can't un-miss the waiting activation). Delete always asks for
+  confirmation. Closing the editor with changes asks "Discard changes?".
+- Restoring a reminder that could never activate again opens the editor
+  in restore mode (`/reminder/:id/edit?mode=restore`); otherwise it is
+  restored directly.
 
 ## Architecture
 
@@ -166,8 +187,11 @@ lib/
                 validation                                          pure Dart
     data/       openAppDatabase(), ReminderRepository (sembast)
     services/   ReminderService, AckInbox, WidgetStorageKeys
-    state/      Riverpod providers (providers.dart)
-    ui/         theme, routing (go_router), screens
+    state/      Riverpod providers: data (providers.dart), clock (now.dart),
+                view models (reminder_views.dart)
+    ui/         theme, routing (go_router), components, screens
+                (home, editor, details, archive), formatting, actions,
+                sync_scope.dart
 ```
 
 ### Domain (`lib/src/domain`, pure Dart — no Flutter imports)
@@ -196,6 +220,11 @@ lib/
 - `Reminder.activeSince`: activations at or before it never happen. Set to
   "now" on create, schedule edit, resume and restore — this is what prevents
   catch-up after a pause/edit/archive.
+- Schedule equality is **semantic**: `RepeatRecurrence` ignores `weekdays`
+  unless weekly and `dayOfMonth` unless monthly; `RangeTiming` ignores
+  `intervalMinutes` in random mode. The editor keeps those values (for
+  switching back) but `EditorDraft.schedule` normalizes them, so
+  "unchanged" really compares equal.
 
 ### Data (`lib/src/data`)
 
@@ -225,6 +254,38 @@ records in one transaction. DateTimes are stored as epoch ms ints.
 - `ReminderSideEffects.onRemindersChanged()` runs after every mutation; it is
   a no-op until notifications and widgets are wired up (step 4).
 
+### State and UI (`lib/src/state`, `lib/src/ui`)
+
+- `nowProvider` (`NowNotifier`) ticks at every minute boundary;
+  `refresh()` after syncs. `reminderViewsProvider` combines reminders,
+  runtimes, now and the engine into `ReminderView`s with a
+  `ReminderStatus` (waiting > paused > scheduled / ended; archived);
+  `reminderViewProvider(id)`, `nextActivationProvider`,
+  `historyProvider((reminderId:, limit:))`.
+- `SyncScope` (in `MaterialApp.router`'s builder) runs `syncAll()` on
+  start, on resume (`AppLifecycleListener`) and with a timer at the next
+  activation (+1 s).
+- `routerProvider` (GoRouter per ProviderScope): `/`, `/new`, `/archive`,
+  `/reminder/:id`, `/reminder/:id/edit[?mode=restore]`. Editors are
+  full-screen dialogs.
+- Editor: `EditorDraft` (flat, immutable form state) +
+  `EditorController` (`editorProvider(EditorTarget)` —
+  `(mode: create|edit|restore, reminderId:)`). The draft id is generated
+  up front so the preview's random times equal the saved ones.
+- `reminder_actions.dart`: acknowledge / pause / archive (+undo) / restore
+  / delete with their snackbars and dialogs — reuse these from any screen.
+- Theme (`ui/theme/app_theme.dart`): `buildAppTheme(scheme)`; dynamic
+  scheme or `fallbackColorScheme` (indigo + teal tertiary).
+  `StatusColors` theme extension (`context.statusColors`): tonal
+  positive/negative from `DynamicSchemeVariant.vibrant`, **not
+  harmonized** (harmonizing turned red pink). In dark mode the solid
+  colors are the mid-tone brand colors with white content (Material's
+  dark tones looked washed out / neon); dark cards use
+  `surfaceContainerHigh`.
+- Components: `StatusThumb` (animated thumb), `ReminderCard`,
+  `ReminderStatusLine`, `MissedBadge`, `SectionCard`, `NumberStepper`,
+  `PickerField`, `ActivationTimes` (times grouped by day), `EmptyState`.
+
 ### Planned (step 4)
 
 - **Notifications** scheduled in a rolling window (iOS keeps 64 pending);
@@ -239,8 +300,15 @@ records in one transaction. DateTimes are stored as epoch ms ints.
 ## Conventions
 
 - Immutable models with `copyWith`, `toJson`/`fromJson`; one concept per file.
-- Domain and sync logic need unit tests; use `databaseFactoryMemory` for
-  sembast in tests.
+- Domain and sync logic need unit tests; use `newDatabaseFactoryMemory()`
+  for sembast in tests.
+- Widget tests use `test/support/test_app.dart` (`TestHarness`): the real
+  app on an in-memory database, `MemoryAckInbox`, a controllable clock and
+  a timer-free `nowProvider`; call `harness.dispose(tester)` at the end.
+  Open/close the database inside `tester.runAsync`.
+- Check UI changes on the Android emulator (build the debug APK, install
+  with adb, `adb exec-out screencap -p`), in light **and** dark mode
+  (`adb shell cmd uimode night yes|no`).
 - Lints: `analysis_options.yaml` (strict casts/inference/raw types, single
   quotes, final locals, ordered directives). Keep `flutter analyze` clean.
 
@@ -254,7 +322,11 @@ records in one transaction. DateTimes are stored as epoch ms ints.
   validation, sembast repository, ack inbox, reminder service, Riverpod
   providers, DB bootstrap in `main()`; 71 tests (`test/core`,
   `test/domain`, `test/services`).
-- [ ] Step 3 — Theme and UI screens (list, editor + schedule preview,
-  details + history, archive)
+- [x] **Step 3 — Theme and UI screens** (2026-11-04): Material You theme
+  with green/red status colors (light + dark), home (summary, needs
+  attention, coming up, paused), editor (create / edit / restore, live
+  preview), details (status, schedule, pause, upcoming, history), archive,
+  go_router routes, sync on start/resume/next activation; 87 tests
+  (incl. widget tests in `test/ui`). Checked on the Android emulator.
 - [ ] Step 4 — Notifications and home screen widgets (Android + iOS)
 - [ ] Step 5 — Final tests, docs, verification
