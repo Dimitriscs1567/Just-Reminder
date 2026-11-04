@@ -24,6 +24,7 @@ flutter test                    # unit + widget tests
 flutter build apk --debug       # verifies Gradle/Kotlin/manifest changes
 flutter run -d emulator-5554    # run on the Android emulator
 flutter emulators --launch Medium_Phone
+flutter test tool/app_icon/generate_app_icon_test.dart   # regenerate app icons
 ```
 
 The development machine is Windows: Android can be built, run and tested;
@@ -172,6 +173,9 @@ explains). Android widgets are **1×1 by default** and resizable (requested
 teal `#14B8A6` fallback; light/dark follow the system; positive green,
 negative red.
 
+**App icon** (chosen 2026-11-05 from nine concepts): white bell with a green
+(`#1E8E3E`) thumbs-up badge on a teal gradient (`#2DD4BF` → `#0F766E`).
+
 **Project:** app name "Just Reminder"; Android `com.example.just_reminder`;
 iOS `com.example.justReminder`; English UI; 12/24 h follows the device.
 
@@ -244,6 +248,8 @@ android/app/src/main/kotlin/com/example/just_reminder/
                 ReminderWidgetProvider, WidgetStore, WidgetConfigurationActivity
 ios/ReminderWidget/
                 WidgetKit extension (needs the Xcode target, see README)
+tool/app_icon/  app icon design + generator (writes the Android and iOS
+                icon files; run as a flutter test)
 ```
 
 ### Domain (`lib/src/domain`, pure Dart — no Flutter imports)
@@ -438,6 +444,32 @@ launch), `AcknowledgeReminder` (button while running),
   `ReminderStatusLine`, `MissedBadge`, `SectionCard`, `NumberStepper`,
   `PickerField`, `ActivationTimes` (times grouped by day), `EmptyState`.
 
+### App icon (`tool/app_icon`)
+
+- `app_icon.dart` is the single source: geometry on a 96-unit tile (Material
+  "notifications" and "thumb_up" paths, Apache 2.0), colours, the painter,
+  and the Android/iOS file contents. `icon_path.dart` parses SVG path data
+  (M L H V C S Z) into absolute segments, for `dart:ui` and for vector XML.
+  `png.dart` is a tiny PNG encoder. `generate_app_icon_test.dart` writes the
+  files; it's a test only so `dart:ui` can render, and `flutter test`
+  (test/) doesn't run it.
+- **Generated, don't edit by hand:** `res/drawable/ic_launcher_{background,
+  foreground,monochrome}.xml`, `res/mipmap-anydpi-v26/ic_launcher.xml`,
+  `res/mipmap-*/ic_launcher.png` (Android 7 launchers: a circle 44/48 of the
+  size) and everything in `ios/Runner/Assets.xcassets/AppIcon.appiconset`
+  (the generator deletes any other PNG there).
+- Android adaptive icon: the tile maps onto the inner 72 dp of the 108 dp
+  canvas; bell and badge stay within the 66 dp safe circle (about 26 dp
+  from the centre). The monochrome (themed) layer is one colour, so the
+  bell is clipped around the badge — a clip-path of the canvas plus a circle
+  wound the other way (nonzero winding leaves a hole) — and the thumb is cut
+  out of the badge with `fillType="evenOdd"`.
+- iOS: single-size 1024 px set (Xcode makes the other sizes) with iOS 18
+  dark (no background, the system draws it) and tinted (grayscale)
+  variants. The light icon is written as **RGB without an alpha channel**:
+  the App Store rejects icons with one, even fully opaque, and Flutter's
+  own PNG encoder always writes RGBA.
+
 ## Conventions
 
 - Immutable models with `copyWith`, `toJson`/`fromJson`; one concept per file.
@@ -494,3 +526,7 @@ launch), `AcknowledgeReminder` (button while running),
   the iOS < 17 launch crash, the widget's retry when its data can't be read
   and the small widget's sizing; README Xcode steps completed. README known
   limitations added; throwaway seed tool removed.
+- [x] **App icon** (2026-11-05): bell with a thumbs-up badge, generated from
+  `tool/app_icon` for Android (adaptive, themed, Android 7 PNGs) and iOS
+  (light, dark, tinted). Checked on the emulator: app drawer, dock, and the
+  themed ("Minimal") icon preview. iOS icons not checked in Xcode.

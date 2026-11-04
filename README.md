@@ -151,6 +151,10 @@ mode follow the phone's setting. Positive is always green and negative always
 red (they are not tinted by the wallpaper, so red never turns pink). The UI
 is in English; 12/24-hour time follows the phone's setting.
 
+The **app icon** is a white bell with a green thumbs-up badge on teal. On
+Android 13+ it also has a single-colour version for themed icons; iOS 18
+gets dark and tinted versions.
+
 ## Tech stack
 
 | Concern             | Package                                                                                                                                 |
@@ -181,6 +185,13 @@ flutter run              # run on a connected device / emulator
 flutter test             # run unit and widget tests
 flutter analyze          # static analysis
 flutter build apk        # Android release build (signed with the debug key)
+```
+
+To change the app icon, edit `tool/app_icon/app_icon.dart` and regenerate
+every Android and iOS icon file from it:
+
+```bash
+flutter test tool/app_icon/generate_app_icon_test.dart
 ```
 
 ## Platform notes
@@ -335,6 +346,7 @@ lib/
       sync_scope.dart       keeps data current; handles notification and
                             widget taps
 test/                       unit and widget tests (core, domain, services, ui)
+tool/app_icon/              the app icon's design and its generator
 android/app/src/main/       widget provider + configuration activity
                             (Kotlin), widget layouts and resources
 ios/ReminderWidget/         WidgetKit extension sources (Swift)
