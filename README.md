@@ -80,7 +80,8 @@ times, so you can check it is right.
   reminder that is currently active keeps it active until you acknowledge
   it; only future activations change.
 - **Archive** keeps a reminder and its history but it never fires again.
-  **Delete** removes the reminder and its history.
+  **Delete** removes the reminder and its history. Archiving a reminder that
+  is currently active records the waiting activation as missed.
 - Finished reminders (a one-time reminder after it fired, or a repeating one
   past its end date) move to the **archive automatically** once acknowledged.
 - In the archive you can view the history, **restore** a reminder (for a
@@ -157,24 +158,43 @@ flutter build apk        # Android release build
   Xcode on a Mac. Step-by-step instructions will be added with the widget
   step.
 
+## How it works
+
+- **Everything stays on your device.** Reminders and their history live in
+  a local [sembast](https://pub.dev/packages/sembast) database; nothing is
+  sent anywhere.
+- A **schedule engine** (pure Dart, fully unit-tested) computes every
+  activation time from the reminder's schedule. Random times are derived
+  from the reminder and the day, so they never change once picked.
+- Acknowledging from the widget or a notification happens while the app may
+  be closed. Those acknowledgments are logged with their time and applied
+  to the history the next time the app runs, in the order they happened,
+  so the history is always correct.
+
 ## Project structure
 
 ```text
 lib/
-  main.dart                 app entry point
+  main.dart                 app entry point (opens the database)
   src/
     app.dart                MaterialApp.router + Material You theme
+    core/                   dates, times, stable hash, seeded random, ids
+    domain/                 reminder & schedule models, schedule engine,
+                            missed/acknowledged state machine, validation
+    data/                   sembast database and repository
+    services/               ReminderService (all changes + sync), ack log
+    state/                  Riverpod providers
     ui/
       routing/              go_router configuration
       screens/              app screens
-test/                       unit and widget tests
+test/                       unit and widget tests (core, domain, services)
 android/, ios/              platform projects (native widget code lives here)
 ```
 
 ## Roadmap
 
 - [x] Project scaffold, dependencies, Android build configuration
-- [ ] Reminder model, schedule engine and sembast storage
+- [x] Reminder model, schedule engine and sembast storage
 - [ ] Theme and screens (list, editor with schedule preview, details &
   history, archive)
 - [ ] Notifications with Acknowledge action

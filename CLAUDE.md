@@ -54,6 +54,10 @@ Known build warning: Gradle reports that `home_widget` still applies the
 Kotlin Gradle Plugin ("Future versions of Flutter will fail to build…"). It
 builds fine today; re-check when upgrading Flutter or home_widget.
 
+Dart 3.13 allows initializing formals for private named parameters
+(`ReminderService({required this._repository})`, called as
+`repository:`); the linter (`prefer_initializing_formals`) asks for them.
+
 ## Product decisions
 
 Agreed with the user on 2026-11-04. These are the spec.
@@ -103,6 +107,8 @@ Agreed with the user on 2026-11-04. These are the spec.
 - Two separate actions: **Archive** (keeps the history, never fires again,
   moves to the Archive screen) and **Delete** (removes the reminder *and* its
   history).
+- Archiving a reminder while it is active records the waiting activation as
+  **missed**.
 - A **finished** reminder (one-time reminder after its activations, or a
   repeating one past its end date) is **moved to the archive automatically**
   once nothing is waiting (i.e. after it is acknowledged). There is no "Done"
@@ -129,38 +135,106 @@ negative red.
 **Project:** app name "Just Reminder"; Android `com.example.just_reminder`;
 iOS `com.example.justReminder`; English UI; 12/24 h follows the device.
 
-## Architecture (planned — refine as each step lands)
+### Implementation choices (made by Claude, not specified by the user)
+
+Reasonable defaults that were reported to the user; ask before changing the
+*behavior* they describe.
+
+- Input limits (`ReminderLimits`): name ≤ 60, display name ≤ 30 (widget
+  space), description ≤ 500 characters; repeat every 1–99; interval 1 min –
+  24 h; interval cap and random count 1–100 (random also ≤ the range's
+  minutes).
+- Start time == end time is invalid (no 24-hour windows).
+- Random times are whole minutes inside `[start, end)`.
+- Reminders follow the device's local wall clock (they move with time-zone
+  changes).
+- Restoring resets the missed count and replays nothing from the archived
+  period.
+- A paused reminder whose schedule can no longer activate (e.g. its one-time
+  date passed while paused) is archived like any finished reminder.
+
+## Architecture
 
 ```text
-lib/src/
-  core/       dates (LocalDate/LocalTime), stable hash, seeded PRNG, clock
-  domain/     Reminder, Schedule, Activation models + ScheduleEngine (pure Dart)
-  data/       sembast database + repositories
-  services/   sync, notifications, widget bridge, background handlers
-  state/      Riverpod providers
-  ui/         theme, routing (go_router), screens, components
+lib/
+  main.dart     opens the DB, sets the iOS App Group, overrides databaseProvider
+  src/
+    core/       LocalDate, LocalTime, FNV-1a stableHash, SeededRandom
+                (mulberry32), newId, Clock, app constants            pure Dart
+    domain/     Schedule (Recurrence + Timing), Reminder, ActivationRecord,
+                ReminderRuntime, ScheduleEngine, advanceRuntime,
+                validation                                          pure Dart
+    data/       openAppDatabase(), ReminderRepository (sembast)
+    services/   ReminderService, AckInbox, WidgetStorageKeys
+    state/      Riverpod providers (providers.dart)
+    ui/         theme, routing (go_router), screens
 ```
 
-- **Domain is pure Dart** (no Flutter imports) so the schedule engine is fully
-  unit-testable. Random mode uses its own PRNG seeded by a stable hash of
-  (reminder id, window date); do not use `dart:math` `Random(seed)` (its
-  sequence may change between SDK releases).
-- **sembast is the source of truth and is opened only in the main isolate.**
-  Notification-action and widget-tap handlers run in background isolates and
-  must never open sembast (it is not multi-isolate safe).
-- **Widget storage is the bridge.** The app writes a per-reminder snapshot
-  (display name, current state, upcoming activation times) to home_widget
-  storage. Any isolate that acknowledges appends to an ack log there. On
-  start/resume the app syncs: it turns elapsed activations into history,
-  applies logged acks in time order (an activation while one is pending marks
-  the pending one missed), rewrites snapshots, reschedules notifications
-  (diffed by id) and widget updates.
-- **Notifications** are scheduled in a rolling window (iOS 64 limit). Ids are a
-  stable hash of (reminder id, activation instant).
-- **Widgets** are native: Android `HomeWidgetProvider` + RemoteViews (Kotlin),
-  iOS WidgetKit extension (Swift, iOS 17+). They compute their state from the
-  snapshot, so they flip to thumbs down at activation time without the app
-  running (Android via `scheduleWidgetUpdates`, iOS via timeline entries).
+### Domain (`lib/src/domain`, pure Dart — no Flutter imports)
+
+- `Schedule` = `Recurrence` (sealed: `OnceRecurrence(date)` |
+  `RepeatRecurrence(unit day/week/month, every, startDate, endDate?,
+  weekdays, dayOfMonth)`) + `Timing` (sealed: `FixedTiming(time)` |
+  `RangeTiming(start, end, mode interval/random, intervalMinutes,
+  maxActivations?)`).
+- `ScheduleEngine` turns a schedule into local `DateTime` instants:
+  `between(id, schedule, from, to)` is `(from, to]`; `upcoming(...)` /
+  `upcomingFor(reminder, ...)` are strictly after; `isFinished(reminder, now)`.
+  Windows that run past midnight are found by scanning from the day before.
+  Random mode seeds `SeededRandom` with `stableHash32('$reminderId|$date')`;
+  never switch to `dart:math` `Random(seed)` (its sequence may change between
+  SDK releases). `test/core/hash_and_random_test.dart` pins the output —
+  it was cross-checked against the reference JavaScript mulberry32/FNV-1a.
+- `advanceRuntime` is the state machine: replays new activations and
+  acknowledgments in time order (activation first on ties). An activation
+  while another is pending marks that one **missed** (`missedCount++`); an
+  acknowledgment acknowledges the pending one and resets `missedCount`.
+  `closePendingAsMissed` is used by archive.
+- `ReminderRuntime` (pending activation, missed count, last ack,
+  `processedUntil`, `appliedAckUntil`) is persisted separately from the
+  history so lists, widgets and notifications never scan history.
+- `Reminder.activeSince`: activations at or before it never happen. Set to
+  "now" on create, schedule edit, resume and restore — this is what prevents
+  catch-up after a pause/edit/archive.
+
+### Data (`lib/src/data`)
+
+sembast database `just_reminder.db` in the app support directory, schema
+version 1. Stores: `reminders` (id → Reminder JSON), `runtimes` (id →
+ReminderRuntime JSON), `history/<reminderId>` (activation epoch ms →
+ActivationRecord JSON; one store per reminder so queries stay small and
+delete is a `drop`). `ReminderRepository.save` writes reminder, runtime and
+records in one transaction. DateTimes are stored as epoch ms ints.
+
+### Services (`lib/src/services`)
+
+- **sembast is opened only in the main isolate.** Notification-action and
+  widget-tap handlers run in background isolates and must never open it.
+- `AckInbox` is the bridge: every acknowledgment (app, widget, notification
+  button) is appended, with its time, to home_widget storage key
+  `jr.acks.<reminderId>` (JSON array of epoch ms, last 50 kept).
+  `HomeWidgetAckInbox` in the app; `MemoryAckInbox` in tests.
+- `ReminderService` performs every mutation, serialized through an internal
+  queue: `create`, `update`, `setPaused`, `archive`, `restore`, `delete`,
+  `acknowledge` (= log to inbox + sync), `syncAll`. Sync per reminder:
+  activations in `(max(processedUntil, activeSince), now]` (none if paused
+  or archived) + inbox acks newer than `appliedAckUntil` → `advanceRuntime`
+  → save; archives the reminder when it is finished and nothing is waiting.
+  Edits, pause and archive sync first, so the old schedule's history is
+  complete. A sync with nothing new writes nothing.
+- `ReminderSideEffects.onRemindersChanged()` runs after every mutation; it is
+  a no-op until notifications and widgets are wired up (step 4).
+
+### Planned (step 4)
+
+- **Notifications** scheduled in a rolling window (iOS keeps 64 pending);
+  ids = `stableHash31('$reminderId@$epochMs')`; Acknowledge action handled
+  in a background isolate via `AckInbox`.
+- **Widgets** are native: Android `HomeWidgetProvider` + RemoteViews
+  (Kotlin), iOS WidgetKit extension (Swift, iOS 17+). The app writes a
+  per-reminder snapshot (display name, state, upcoming activation times) so
+  widgets flip to thumbs down at activation time without the app running
+  (Android via `scheduleWidgetUpdates`, iOS via timeline entries).
 
 ## Conventions
 
@@ -175,7 +249,11 @@ lib/src/
 - [x] **Step 1 — Scaffold** (2026-11-04): Flutter project (android, ios),
   dependencies, desugaring, app label, lints, app shell with Material You
   theme and go_router, README/CLAUDE.md.
-- [ ] Step 2 — Models, schedule engine, sembast storage (+ unit tests)
+- [x] **Step 2 — Models, schedule engine, storage** (2026-11-04): core
+  types, domain models + JSON, schedule engine, missed/ack state machine,
+  validation, sembast repository, ack inbox, reminder service, Riverpod
+  providers, DB bootstrap in `main()`; 71 tests (`test/core`,
+  `test/domain`, `test/services`).
 - [ ] Step 3 — Theme and UI screens (list, editor + schedule preview,
   details + history, archive)
 - [ ] Step 4 — Notifications and home screen widgets (Android + iOS)
