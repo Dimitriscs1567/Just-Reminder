@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_label">Reminder</string>
+    <string name="widget_description">One reminder at a glance: thumbs up when all is clear, thumbs down when it needs you. Tap the thumbs down to acknowledge.</string>
+    <string name="widget_default_title">Just Reminder</string>
+    <string name="widget_preview_title">Water</string>
+    <string name="widget_choose">Tap to choose a reminder</string>
+    <string name="widget_archived">Archived · tap to choose another</string>
+    <string name="widget_deleted">Deleted · tap to choose another</string>
+    <string name="widget_missed">%1$d missed</string>
+    <string name="widget_acknowledge">Acknowledge</string>
+    <string name="widget_all_clear">All clear</string>
+</resources>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget colors (dark). -->
+<resources>
+    <color name="widget_neutral">#FF2B2930</color>
+    <color name="widget_on_neutral">#FFE6E0E9</color>
+    <color name="widget_clear">#FF13391F</color>
+    <color name="widget_on_clear">#FFB7F1C7</color>
+    <color name="widget_waiting">#FF5C1310</color>
+    <color name="widget_on_waiting">#FFFFDAD6</color>
+    <color name="widget_positive">#FF1E8E3E</color>
+    <color name="widget_negative">#FFD93025</color>
+</resources>

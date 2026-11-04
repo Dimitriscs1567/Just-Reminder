@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../../state/now.dart';
 import '../../../state/reminder_views.dart';
 import '../../components/empty_state.dart';
+import '../../components/permission_banner.dart';
 import '../../components/reminder_card.dart';
 import '../../components/status_thumb.dart';
 import '../../formatting.dart';
@@ -102,10 +103,15 @@ class _HomeBody extends StatelessWidget {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             sliver: SliverToBoxAdapter(
-              child: _SummaryCard(
-                waiting: waiting,
-                next: upcoming.firstOrNull,
-                now: now,
+              child: Column(
+                children: [
+                  _SummaryCard(
+                    waiting: waiting,
+                    next: upcoming.firstOrNull,
+                    now: now,
+                  ),
+                  const PermissionBanner(),
+                ],
               ),
             ),
           ),

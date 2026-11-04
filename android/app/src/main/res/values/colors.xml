@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget colors (light). Red and green match the app's status colors;
+     values-v31 swaps the neutral background for Material You colors. -->
+<resources>
+    <color name="widget_neutral">#FFF3EDF7</color>
+    <color name="widget_on_neutral">#FF1D1B20</color>
+    <color name="widget_clear">#FFDCF5E3</color>
+    <color name="widget_on_clear">#FF00391A</color>
+    <color name="widget_waiting">#FFFFDAD6</color>
+    <color name="widget_on_waiting">#FF5C0B06</color>
+    <color name="widget_positive">#FF1E8E3E</color>
+    <color name="widget_negative">#FFD93025</color>
+</resources>

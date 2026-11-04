@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../core/local_date.dart';
 import '../../../core/local_time.dart';
+import '../../../domain/reminder.dart';
 import '../../../domain/schedule.dart';
 import '../../../domain/validation.dart';
 import '../../../state/now.dart';
@@ -560,18 +561,31 @@ class _ReminderEditorScreenState extends ConsumerState<ReminderEditorScreen> {
       return;
     }
 
+    final notifications = ref.read(notificationServiceProvider);
     setState(() => _saving = true);
+    final Reminder saved;
     try {
-      final saved = await controller.save();
-      tell(switch (mode) {
-        EditorMode.create => '“${saved.name}” created',
-        EditorMode.edit => 'Changes saved',
-        EditorMode.restore => '“${saved.name}” restored',
-      });
-      navigator.pop();
+      saved = await controller.save();
     } on Object catch (error) {
       if (mounted) setState(() => _saving = false);
       tell('Couldn’t save: $error');
+      return;
+    }
+    tell(switch (mode) {
+      EditorMode.create => '“${saved.name}” created',
+      EditorMode.edit => 'Changes saved',
+      EditorMode.restore => '“${saved.name}” restored',
+    });
+    navigator.pop();
+
+    // The natural moment to ask: right after a reminder is set up.
+    if (notifications == null) return;
+    try {
+      if (!(await notifications.permissions()).enabled) {
+        await notifications.requestPermission();
+      }
+    } on Object {
+      // The home screen banner offers it again.
     }
   }
 

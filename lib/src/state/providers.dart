@@ -8,7 +8,11 @@ import '../domain/reminder.dart';
 import '../domain/reminder_runtime.dart';
 import '../domain/schedule_engine.dart';
 import '../services/ack_inbox.dart';
+import '../services/app_events.dart';
+import '../services/app_side_effects.dart';
+import '../services/notifications/notification_service.dart';
 import '../services/reminder_service.dart';
+import '../services/widget/widget_bridge.dart';
 
 /// The current time; overridden in tests.
 final clockProvider = Provider<Clock>((ref) => systemClock);
@@ -30,10 +34,41 @@ final ackInboxProvider = Provider<AckInbox>(
   (ref) => const HomeWidgetAckInbox(),
 );
 
-/// Keeps notifications and widgets up to date (wired up in a later step).
-final sideEffectsProvider = Provider<ReminderSideEffects>(
-  (ref) => const NoSideEffects(),
+/// The notification plugin wrapper. `null` until `main()` provides one (and
+/// in tests), which turns notifications and widget updates off.
+final notificationServiceProvider = Provider<NotificationService?>(
+  (ref) => null,
 );
+
+final widgetBridgeProvider = Provider<WidgetBridge>(
+  (ref) => const WidgetBridge(),
+);
+
+/// Notification taps, widget clicks and other outside requests.
+final appEventsProvider = Provider<AppEvents>((ref) {
+  final events = AppEvents();
+  ref.onDispose(events.dispose);
+  return events;
+});
+
+/// What the user allowed; `null` without a notification service.
+final notificationPermissionsProvider =
+    FutureProvider.autoDispose<NotificationPermissions?>(
+      (ref) async => ref.watch(notificationServiceProvider)?.permissions(),
+    );
+
+/// Keeps notifications and home screen widgets in line with the data.
+final sideEffectsProvider = Provider<ReminderSideEffects>((ref) {
+  final notifications = ref.watch(notificationServiceProvider);
+  if (notifications == null) return const NoSideEffects();
+  return AppSideEffects(
+    repository: ref.watch(reminderRepositoryProvider),
+    engine: ref.watch(scheduleEngineProvider),
+    clock: ref.watch(clockProvider),
+    widgets: ref.watch(widgetBridgeProvider),
+    notifications: notifications,
+  );
+});
 
 final reminderServiceProvider = Provider<ReminderService>(
   (ref) => ReminderService(

@@ -126,25 +126,38 @@ class StatusColors extends ThemeExtension<StatusColors> {
   });
 
   factory StatusColors.forScheme(ColorScheme scheme) {
-    ColorScheme tones(Color seed) => ColorScheme.fromSeed(
-      seedColor: seed,
-      brightness: scheme.brightness,
-      dynamicSchemeVariant: DynamicSchemeVariant.vibrant,
+    ColorScheme tones(Color seed, DynamicSchemeVariant variant) =>
+        ColorScheme.fromSeed(
+          seedColor: seed,
+          brightness: scheme.brightness,
+          dynamicSchemeVariant: variant,
+        );
+    // Solid colors (thumb, buttons, badges) are vivid; backgrounds use the
+    // calmer tonal containers (the vivid ones turn neon green).
+    final positive = tones(BrandColors.positive, DynamicSchemeVariant.vibrant);
+    final negative = tones(BrandColors.negative, DynamicSchemeVariant.vibrant);
+    final positiveSoft = tones(
+      BrandColors.positive,
+      DynamicSchemeVariant.tonalSpot,
     );
-    final positive = tones(BrandColors.positive);
-    final negative = tones(BrandColors.negative);
-    // The solid colors (thumb, buttons, badges) stay saturated mid-tones
-    // with white content in dark mode too; Material's light dark-mode tones
-    // would look washed out (red) or neon (green).
+    final negativeSoft = tones(
+      BrandColors.negative,
+      DynamicSchemeVariant.tonalSpot,
+    );
+    // In dark mode the solid colors stay saturated mid-tones with white
+    // content; Material's dark-mode tones look washed out (red) or neon
+    // (green).
     final light = scheme.brightness == Brightness.light;
     return StatusColors(
       positive: light ? positive.primary : BrandColors.positive,
       onPositive: light ? positive.onPrimary : Colors.white,
-      positiveContainer: positive.primaryContainer,
+      positiveContainer: positiveSoft.primaryContainer,
+      // Text from the vivid palette stays clearly green/red (the tonal one
+      // drifts towards brown).
       onPositiveContainer: positive.onPrimaryContainer,
       negative: light ? negative.primary : BrandColors.negative,
       onNegative: light ? negative.onPrimary : Colors.white,
-      negativeContainer: negative.primaryContainer,
+      negativeContainer: negativeSoft.primaryContainer,
       onNegativeContainer: negative.onPrimaryContainer,
     );
   }

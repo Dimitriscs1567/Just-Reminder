@@ -62,13 +62,24 @@ times, so you can check it is right.
 
 - When a reminder activates you get a notification (title = display name,
   text = description) with an **Acknowledge** button, and the reminder turns
-  red (👎) in the app and on its widget.
+  red (👎) in the app and on its widget — also while the app is closed.
 - Swiping the notification away only hides it; the reminder **stays active**
   until you acknowledge it.
 - If a new activation arrives while the previous one is still unacknowledged,
   you are notified again. The previous one is recorded as **missed** in the
-  history, and the app and widget show how many were missed until you
-  acknowledge the current one.
+  history, and the app, the widget and the new notification ("2 missed") show
+  how many were missed until you acknowledge the current one. On Android the
+  older notification is replaced by the new one; on iOS they are grouped.
+- Tapping a notification opens the reminder. Acknowledging from the
+  notification or the widget works without opening the app.
+
+### Permissions
+
+- The app asks to send notifications right after you save a reminder; a
+  banner on the home screen offers it again if notifications are off.
+- **Android 12+:** for notifications at the exact minute, allow *Alarms &
+  reminders* (the banner opens the setting). Without it Android may deliver
+  them a few minutes late.
 - Every activation is kept in the reminder's **history** (acknowledged with
   time / missed / active). History is kept forever.
 - In interval mode an activation that lands exactly on the range end counts
@@ -94,10 +105,20 @@ times, so you can check it is right.
   reminder it tracks. Add several widgets to track several reminders.
 - Shows the reminder's display name, a thumbs up (green) or thumbs down
   (red), and a **"N missed"** badge while missed activations are waiting.
-- Tap the thumbs down to acknowledge right from the home screen.
+- Tap the thumbs down to acknowledge right from the home screen; tap
+  anywhere else on the widget to open the reminder.
+- It turns red at activation time on its own, even when the app is closed.
 - If the reminder is archived or deleted, the widget shows an "Archived" or
   "Deleted" label instead of the thumb; tap it (Android) or long-press → Edit
   Widget (iOS) to pick another reminder.
+
+**Adding the widget**
+
+- *Android:* long-press the home screen → **Widgets** → **Just Reminder** →
+  drag (or tap → Add) the *Reminder* widget, then choose the reminder.
+- *iOS (17+):* long-press the Home Screen → **Edit** → **Add Widget** →
+  **Just Reminder**, then long-press the widget → **Edit Widget** → choose the
+  reminder.
 
 ### Screens
 
@@ -161,20 +182,66 @@ flutter build apk        # Android release build
 ### Android notes
 
 - Package / application ID: `com.example.just_reminder` (placeholder — change
-  `applicationId` and `namespace` in `android/app/build.gradle.kts` before
-  publishing).
+  `applicationId` and `namespace` in `android/app/build.gradle.kts` and the
+  Kotlin package before publishing).
 - Core library desugaring is enabled (required by
   `flutter_local_notifications`).
-- More details (notification and exact-alarm permissions, widget setup) will
-  follow with the notifications and widget step.
+- Permissions: `POST_NOTIFICATIONS` (asked at runtime), `SCHEDULE_EXACT_ALARM`
+  (the user grants *Alarms & reminders*), `RECEIVE_BOOT_COMPLETED` (to
+  re-arm notifications and widget refreshes after a reboot).
+- The widget is native (`android/app/src/main/kotlin/.../ReminderWidgetProvider.kt`
+  with RemoteViews layouts in `res/layout`). Picking its reminder runs a small
+  Flutter screen in `WidgetConfigurationActivity`.
+- The notification icon `res/drawable/ic_stat_reminder.xml` is kept in
+  release builds by `res/raw/keep.xml`.
+- Some manufacturers (e.g. Xiaomi, Huawei) stop background work
+  aggressively; if notifications arrive late, allow the app to run in the
+  background (see [dontkillmyapp.com](https://dontkillmyapp.com)).
 
 ### iOS notes
 
 - Bundle ID: `com.example.justReminder` (placeholder — change it in Xcode
-  before publishing).
-- The home screen widget is a WidgetKit extension that has to be added in
-  Xcode on a Mac. Step-by-step instructions will be added with the widget
-  step.
+  before publishing, and the App Group with it).
+- The app is set up for notifications (`ios/Runner/AppDelegate.swift`) and
+  the `justreminder://` URL scheme (`Info.plist`).
+- iOS keeps at most 64 scheduled notifications per app, so the app schedules
+  the next ones and tops them up whenever it runs.
+
+#### Adding the iOS widget extension (once, in Xcode on a Mac)
+
+The widget's Swift code is in [`ios/ReminderWidget/`](ios/ReminderWidget/);
+the Xcode target for it has to be created by hand. These files were written
+on Windows and have not been compiled yet — build once in Xcode and fix
+anything it reports.
+
+1. Run `flutter pub get`, then open `ios/Runner.xcworkspace` in Xcode.
+2. **File → New → Target… → Widget Extension.** Product name
+   **`ReminderWidget`**. Uncheck *Include Live Activity*, *Include Control*
+   and *Include Configuration App Intent*. Finish (and *Activate* the
+   scheme if asked).
+3. Xcode adds template files to `ios/ReminderWidget/`. **Delete** its
+   `ReminderWidget.swift` and `ReminderWidgetBundle.swift` (Move to Trash);
+   keep `Assets.xcassets` and `Info.plist`. Make sure the repo's files —
+   `JustReminderWidget.swift`, `JustReminderWidgetBundle.swift`,
+   `ReminderConfiguration.swift`, `AcknowledgeReminderIntent.swift`,
+   `NotificationCleanup.swift`, `WidgetStore.swift` — belong to the
+   **ReminderWidgetExtension** target (Xcode 16 folders pick them up
+   automatically; otherwise *Add Files to "Runner"…* with only that target
+   ticked).
+4. Select the **ReminderWidgetExtension** target → *General* → *Minimum
+   Deployments*: **iOS 17.0** (interactive and configurable widgets).
+5. **App Groups** (needs a paid Apple Developer account): for both the
+   **Runner** and **ReminderWidgetExtension** targets, *Signing &
+   Capabilities* → *+ Capability* → *App Groups* → add
+   **`group.com.example.justReminder`**. It must match `iosAppGroupId` in
+   `lib/src/core/app_constants.dart` and `WidgetStore.appGroup`.
+6. Build and run (`flutter run`). If Xcode reports a build cycle involving
+   *Thin Binary*, select the **Runner** target → *Build Phases* and drag
+   *Thin Binary* to the bottom of the list.
+
+The iOS widget needs no Flutter code: it reads the data the app stores in
+the App Group and acknowledges with an App Intent that runs in the widget
+extension.
 
 ## How it works
 
@@ -188,28 +255,40 @@ flutter build apk        # Android release build
   be closed. Those acknowledgments are logged with their time and applied
   to the history the next time the app runs, in the order they happened,
   so the history is always correct.
+- After every change the app writes a small **snapshot** per reminder for
+  the widgets (state + upcoming activation times) and reschedules the
+  notifications. With the upcoming times the widget can turn red by itself
+  at the right moment (Android redraws it at those times; iOS gets a
+  timeline entry for each).
 
 ## Project structure
 
 ```text
 lib/
-  main.dart                 app entry point (opens the database)
+  main.dart                 app entry point (+ Android widget configuration
+                            entry point)
   src/
     app.dart                MaterialApp.router + Material You theme
+    background/             Acknowledge from a widget / notification without
+                            the app
     core/                   dates, times, stable hash, seeded random, ids
     domain/                 reminder & schedule models, schedule engine,
                             missed/acknowledged state machine, validation
     data/                   sembast database and repository
-    services/               ReminderService (all changes + sync), ack log
+    services/               ReminderService (all changes + sync), ack log,
+                            notifications/, widget/ (snapshots for widgets)
     state/                  Riverpod providers (data, clock, view models)
     ui/
       theme/                Material You theme + green/red status colors
       routing/              go_router configuration
-      components/           thumb, cards, steppers, pickers, …
-      screens/              home, editor, details, archive
-      sync_scope.dart       keeps data current while the app runs
+      components/           thumb, cards, steppers, pickers, banners, …
+      screens/              home, editor, details, archive, widget config
+      sync_scope.dart       keeps data current; handles notification and
+                            widget taps
 test/                       unit and widget tests (core, domain, services, ui)
-android/, ios/              platform projects (native widget code lives here)
+android/app/src/main/       widget provider + configuration activity
+                            (Kotlin), widget layouts and resources
+ios/ReminderWidget/         WidgetKit extension sources (Swift)
 ```
 
 ## Roadmap
@@ -218,6 +297,7 @@ android/, ios/              platform projects (native widget code lives here)
 - [x] Reminder model, schedule engine and sembast storage
 - [x] Theme and screens (list, editor with schedule preview, details &
   history, archive)
-- [ ] Notifications with Acknowledge action
-- [ ] Home screen widgets (Android + iOS)
+- [x] Notifications with Acknowledge action
+- [x] Home screen widgets — Android (tested on the emulator) and iOS
+  (written; needs the one-time Xcode setup above)
 - [ ] Final tests and documentation pass

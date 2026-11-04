@@ -1,14 +1,28 @@
 /// Keys in the home_widget storage (Android SharedPreferences
 /// `HomeWidgetPreferences`, iOS App Group UserDefaults).
 ///
-/// Native widget code (Kotlin / Swift) reads the same keys, so change them on
-/// all sides together.
+/// The native widget code reads the same keys —
+/// `android/app/src/main/kotlin/com/example/just_reminder/WidgetStore.kt`
+/// and `ios/ReminderWidget/WidgetStore.swift` — so change them on all sides
+/// together.
 abstract final class WidgetStorageKeys {
   /// JSON array of acknowledgment instants (epoch ms) for a reminder.
   ///
   /// Appended by whoever acknowledges — the app, a widget tap, or the
   /// notification's Acknowledge button (the last two run in background
-  /// isolates that must not open the database). The app's sync applies the
-  /// entries to the database.
+  /// isolates or the widget extension, which must not open the database).
+  /// The app's sync applies the entries to the database.
   static String acknowledgments(String reminderId) => 'jr.acks.$reminderId';
+
+  /// JSON snapshot a widget renders a reminder from (see
+  /// `widget_snapshot.dart`). Deleted reminders keep a small tombstone so
+  /// their widgets can say "Deleted".
+  static String snapshot(String reminderId) => 'jr.reminder.$reminderId';
+
+  /// JSON array of `{id, name, displayName, archived}` for every reminder
+  /// (not deleted ones). Widget configuration lists the non-archived ones.
+  static const index = 'jr.reminders';
+
+  /// Android only: the reminder id an app widget instance shows.
+  static String androidWidget(int appWidgetId) => 'jr.widget.$appWidgetId';
 }

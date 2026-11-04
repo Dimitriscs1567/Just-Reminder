@@ -67,6 +67,16 @@ More gotchas:
   so pump before testing anything that depends on the rebuild (e.g.
   `PopScope.canPop`).
 - On Git Bash, `adb` device paths need `MSYS_NO_PATHCONV=1`.
+- `adb shell pm clear` also deletes `files/` — launch the app once before
+  copying a database into it.
+- Emulator widget test: long-press home → Widgets → search "Just" → tap the
+  preview → Add → the configuration screen opens. Notification shade:
+  `adb shell cmd statusbar expand-notifications`.
+- Windows PowerShell's `Set-Content -Encoding utf8` writes a BOM — avoid it
+  for source files.
+- The iOS Swift code cannot be compiled on this machine; metadata
+  properties (`title`, `description`, `defaultQuery`, …) are computed
+  `static var`s like Apple's templates (safe with Swift 6 concurrency).
 
 ## Product decisions
 
@@ -173,25 +183,42 @@ Reasonable defaults that were reported to the user; ask before changing the
 - Restoring a reminder that could never activate again opens the editor
   in restore mode (`/reminder/:id/edit?mode=restore`); otherwise it is
   restored directly.
+- Notifications: body falls back to "Tap Acknowledge once you’ve done it.";
+  "N missed" as Android subText / iOS subtitle; on Android the previous
+  notification of a reminder disappears when its next one arrives; tapping
+  a notification opens the reminder.
+- Widget: Android 2×2 (resizable); tapping the thumb acknowledges only while
+  waiting, anywhere else opens the reminder. iOS widget is `systemSmall`
+  and needs iOS 17 (the app itself stays iOS 15+).
 
 ## Architecture
 
 ```text
 lib/
-  main.dart     opens the DB, sets the iOS App Group, overrides databaseProvider
+  main.dart     main(): App Group, notification plugin + handlers, widget
+                interactivity callback, launch event, DB, ProviderScope;
+                widgetConfigurationMain(): Android widget configuration
   src/
+    background/ background_handlers.dart — widget tap / notification
+                button entry points (no database)
     core/       LocalDate, LocalTime, FNV-1a stableHash, SeededRandom
                 (mulberry32), newId, Clock, app constants            pure Dart
     domain/     Schedule (Recurrence + Timing), Reminder, ActivationRecord,
                 ReminderRuntime, ScheduleEngine, advanceRuntime,
                 validation                                          pure Dart
     data/       openAppDatabase(), ReminderRepository (sembast)
-    services/   ReminderService, AckInbox, WidgetStorageKeys
+    services/   ReminderService, AckInbox, WidgetStorageKeys, AppEvents,
+                AppSideEffects, notifications/ (plan, scheduler, service),
+                widget/ (snapshot, bridge)
     state/      Riverpod providers: data (providers.dart), clock (now.dart),
                 view models (reminder_views.dart)
     ui/         theme, routing (go_router), components, screens
-                (home, editor, details, archive), formatting, actions,
-                sync_scope.dart
+                (home, editor, details, archive, widget_config),
+                formatting, actions, sync_scope.dart
+android/app/src/main/kotlin/com/example/just_reminder/
+                ReminderWidgetProvider, WidgetStore, WidgetConfigurationActivity
+ios/ReminderWidget/
+                WidgetKit extension (needs the Xcode target, see README)
 ```
 
 ### Domain (`lib/src/domain`, pure Dart — no Flutter imports)
@@ -251,8 +278,87 @@ records in one transaction. DateTimes are stored as epoch ms ints.
   → save; archives the reminder when it is finished and nothing is waiting.
   Edits, pause and archive sync first, so the old schedule's history is
   complete. A sync with nothing new writes nothing.
-- `ReminderSideEffects.onRemindersChanged()` runs after every mutation; it is
-  a no-op until notifications and widgets are wired up (step 4).
+- `ReminderSideEffects.onRemindersChanged()` runs after every mutation
+  (inside the service queue). `AppSideEffects` publishes widget snapshots
+  and reschedules notifications; failures are logged, never thrown.
+  `sideEffectsProvider` falls back to `NoSideEffects` when
+  `notificationServiceProvider` is null (tests).
+
+### Notifications (`lib/src/services/notifications`)
+
+- `planNotifications` (pure): live reminders' upcoming activations within
+  14 days; budget iOS 60 / Android 200 total, each reminder first gets its
+  next 3 (round-robin), then soonest-first; per reminder always a gap-free
+  prefix. Title = display name, body = description or
+  `defaultNotificationBody`, subtitle/subText "N missed" (= missed so far
+  + index), Android `timeoutAfter` = time to the reminder's next scheduled
+  notification (it replaces the old one).
+- Ids: `notificationIdFor(id, at)` = `stableHash31('$id@$ms')`. Payload JSON
+  `{r: reminderId, t: ms, h: hash(content + exact/inexact)}` —
+  `payloadFor(exact:)`. The mode is part of the hash so granting/revoking
+  exact alarms reschedules everything (found on the emulator: inexact
+  alarms stayed inexact after granting).
+- `NotificationScheduler.apply` diffs plan vs `pendingNotificationRequests`
+  (unchanged stay, changed rescheduled, others cancelled) but keeps a due,
+  undelivered notification of a reminder's waiting activation (late
+  inexact alarm). `clearDeliveredExcept(waitingIds)`,
+  `clearDelivered(id)`, `renumberAfterAcknowledgment(id)` (background).
+  `NotificationGateway` abstracts the plugin (fake in tests).
+- `NotificationService`: `initialize(onBackgroundResponse:, onResponse:)` —
+  **every isolate must pass the same background handler**
+  (`notificationBackgroundHandler`), or the stored handle may be cleared.
+  Android channel `reminders` (high importance, category reminder, tag =
+  reminder id, Acknowledge action without UI). iOS category `reminder` with
+  a plain Acknowledge action, `threadIdentifier` = reminder id. Scheduling
+  uses `tz.UTC` (absolute instants; no tz database needed).
+  `exactAllowWhileIdle` when allowed, else `inexactAllowWhileIdle`.
+- Permissions: `PermissionBanner` on home (notifications off → request /
+  settings; Android exact alarms → "Alarms & reminders"); the editor asks
+  for notification permission after saving if not granted.
+
+### Widgets (`lib/src/services/widget`, native code)
+
+- Storage contract (`WidgetStorageKeys`, mirrored in `WidgetStore.kt` /
+  `WidgetStore.swift`): `jr.reminder.<id>` snapshot JSON (`v, id, name,
+  displayName, state live|paused|archived|deleted, asOf, pendingAt,
+  missedCount, upcoming[], reminder{}`), `jr.reminders` index
+  (`[{id, name, displayName, archived}]`), `jr.acks.<id>` ack log,
+  Android `jr.widget.<appWidgetId>` → reminder id. Deleted reminders keep a
+  tombstone snapshot.
+- State at time t (same in Dart `widgetStatusAt`, Kotlin, Swift):
+  `total = (pendingAt != null ? 1 + missedCount : 0) + |upcoming ∩ (asOf, t]|`;
+  waiting if `total > 0`, missed = `total − 1`.
+- `WidgetBridge.publish` (after every change): snapshots, index, tombstones,
+  Android `scheduleWidgetUpdates` at the upcoming times (≤ 500), then
+  `updateWidget(qualifiedAndroidName: …ReminderWidgetProvider, iOSName:
+  ReminderWidget)`.
+- Android: `ReminderWidgetProvider` (HomeWidgetProvider + RemoteViews
+  `reminder_widget.xml`): waiting → red, thumb tap =
+  `HomeWidgetBackgroundIntent` `justreminder://acknowledge?id=…`
+  (home_widget runs `widgetInteractionCallback` via WorkManager), rest opens
+  `justreminder://reminder/<id>?homeWidget`; archived / deleted /
+  unconfigured → label, tap reopens `WidgetConfigurationActivity`
+  (`FlutterActivity` with entry point `widgetConfigurationMain` → Flutter
+  picker reading the index, then `finishHomeWidgetConfigure`). Material You
+  neutral colors on API 31+ (`values-v31`).
+- iOS (`ios/ReminderWidget`, iOS 17+): `AppIntentConfiguration` with
+  `SelectReminderIntent` (entities from the index; unknown ids resolve to a
+  "deleted" entity), timeline entry now + one per upcoming activation,
+  thumbs-down `Button(intent: AcknowledgeReminderIntent)` runs **in the
+  extension**: appends to the ack log, rewrites the snapshot, clears and
+  re-numbers notifications (`NotificationCleanup`) — no Flutter engine in
+  the extension. Archived/deleted → `justreminder://widget-help` (the app
+  explains Edit Widget).
+
+### Background acknowledgment (`lib/src/background`)
+
+`acknowledgeInBackground(id)`: ack log + acknowledged snapshot (+
+`updateWidgets`) + clear tray + renumber. Used by
+`widgetInteractionCallback` (Android widget) and
+`notificationBackgroundHandler` (Acknowledge button, both platforms).
+`AppEvents` (main isolate): `OpenReminder` (notification/widget tap,
+launch), `AcknowledgeReminder` (button while running),
+`ExplainWidgetEditing`; handled in `SyncScope`.
 
 ### State and UI (`lib/src/state`, `lib/src/ui`)
 
@@ -276,26 +382,17 @@ records in one transaction. DateTimes are stored as epoch ms ints.
   / delete with their snackbars and dialogs — reuse these from any screen.
 - Theme (`ui/theme/app_theme.dart`): `buildAppTheme(scheme)`; dynamic
   scheme or `fallbackColorScheme` (indigo + teal tertiary).
-  `StatusColors` theme extension (`context.statusColors`): tonal
-  positive/negative from `DynamicSchemeVariant.vibrant`, **not
-  harmonized** (harmonizing turned red pink). In dark mode the solid
+  `StatusColors` theme extension (`context.statusColors`), **not
+  harmonized** (harmonizing turned red pink): solid colors and container
+  text from `DynamicSchemeVariant.vibrant`, container backgrounds from
+  `tonalSpot` (vibrant containers were neon green). In dark mode the solid
   colors are the mid-tone brand colors with white content (Material's
   dark tones looked washed out / neon); dark cards use
-  `surfaceContainerHigh`.
+  `surfaceContainerHigh`. Widget colors (Android `values*/colors.xml`, iOS
+  `Palette`) are separate constants in the same spirit.
 - Components: `StatusThumb` (animated thumb), `ReminderCard`,
   `ReminderStatusLine`, `MissedBadge`, `SectionCard`, `NumberStepper`,
   `PickerField`, `ActivationTimes` (times grouped by day), `EmptyState`.
-
-### Planned (step 4)
-
-- **Notifications** scheduled in a rolling window (iOS keeps 64 pending);
-  ids = `stableHash31('$reminderId@$epochMs')`; Acknowledge action handled
-  in a background isolate via `AckInbox`.
-- **Widgets** are native: Android `HomeWidgetProvider` + RemoteViews
-  (Kotlin), iOS WidgetKit extension (Swift, iOS 17+). The app writes a
-  per-reminder snapshot (display name, state, upcoming activation times) so
-  widgets flip to thumbs down at activation time without the app running
-  (Android via `scheduleWidgetUpdates`, iOS via timeline entries).
 
 ## Conventions
 
@@ -328,5 +425,13 @@ records in one transaction. DateTimes are stored as epoch ms ints.
   preview), details (status, schedule, pause, upcoming, history), archive,
   go_router routes, sync on start/resume/next activation; 87 tests
   (incl. widget tests in `test/ui`). Checked on the Android emulator.
-- [ ] Step 4 — Notifications and home screen widgets (Android + iOS)
+- [x] **Step 4 — Notifications and home screen widgets** (2026-11-04):
+  scheduled notifications with Acknowledge action and "N missed",
+  permission banner, background acknowledgment, widget snapshots, native
+  Android widget + Flutter configuration screen, iOS WidgetKit extension
+  sources + AppDelegate/Info.plist, deep links; 107 tests. Verified on the
+  Android emulator: notification fired and its Acknowledge button worked
+  with the app in the background, widget added/configured, turned red on
+  its own at an activation, thumb tap acknowledged, widget tap opened the
+  reminder with the correct history. iOS not compiled (Windows).
 - [ ] Step 5 — Final tests, docs, verification

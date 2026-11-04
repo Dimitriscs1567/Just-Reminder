@@ -51,6 +51,11 @@ class ReminderRepository {
         },
       );
 
+  Future<Map<String, ReminderRuntime>> getRuntimes() async => {
+    for (final snapshot in await _runtimes.find(_db))
+      snapshot.key: ReminderRuntime.fromJson(snapshot.value),
+  };
+
   Future<ReminderRuntime?> getRuntime(String reminderId) async {
     final value = await _runtimes.record(reminderId).get(_db);
     return value == null ? null : ReminderRuntime.fromJson(value);
