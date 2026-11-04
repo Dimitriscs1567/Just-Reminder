@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One reminder: display name, thumb (up = clear, down = waiting),
-     "N missed" badge, or a label when archived / deleted / not set up. -->
+<!-- Large layout (from about 2×2): display name, thumb (up = clear,
+     down = waiting), "N missed" badge, or a label when archived / deleted /
+     not set up. Same view ids as reminder_widget_small. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -26,15 +27,19 @@
         android:textSize="15sp"
         android:textStyle="bold" />
 
-    <ImageView
-        android:id="@+id/widget_thumb"
-        android:layout_width="60dp"
-        android:layout_height="60dp"
-        android:layout_marginTop="8dp"
-        android:background="@drawable/widget_circle_positive"
-        android:contentDescription="@string/widget_all_clear"
-        android:padding="15dp"
-        android:src="@drawable/ic_widget_thumb_up" />
+    <FrameLayout
+        android:id="@+id/widget_thumb_group"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp">
+
+        <ImageView
+            android:id="@+id/widget_thumb"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:contentDescription="@string/widget_all_clear"
+            android:src="@drawable/widget_thumb_up" />
+    </FrameLayout>
 
     <TextView
         android:id="@+id/widget_badge"

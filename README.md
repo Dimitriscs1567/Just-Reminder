@@ -104,7 +104,12 @@ times, so you can check it is right.
 - **One widget per reminder**: when you add the widget, you pick which
   reminder it tracks. Add several widgets to track several reminders.
 - Shows the reminder's display name, a thumbs up (green) or thumbs down
-  (red), and a **"N missed"** badge while missed activations are waiting.
+  (red), and how many activations were missed while one is waiting.
+- *Android:* **1×1 by default**: the thumb with a small missed-count bubble
+  and the display name below it. Resize it to about 2×2 or larger for a
+  bigger thumb and a **"N missed"** badge.
+- *iOS:* the small widget size (iOS has no 1×1 home screen widgets), with a
+  **"N missed"** badge.
 - Tap the thumbs down to acknowledge right from the home screen; tap
   anywhere else on the widget to open the reminder.
 - It turns red at activation time on its own, even when the app is closed.
@@ -190,8 +195,9 @@ flutter build apk        # Android release build
   (the user grants *Alarms & reminders*), `RECEIVE_BOOT_COMPLETED` (to
   re-arm notifications and widget refreshes after a reboot).
 - The widget is native (`android/app/src/main/kotlin/.../ReminderWidgetProvider.kt`
-  with RemoteViews layouts in `res/layout`). Picking its reminder runs a small
-  Flutter screen in `WidgetConfigurationActivity`.
+  with RemoteViews layouts in `res/layout`: `reminder_widget_small.xml` for
+  1×1 and other small sizes, `reminder_widget.xml` from about 2×2). Picking
+  its reminder runs a small Flutter screen in `WidgetConfigurationActivity`.
 - The notification icon `res/drawable/ic_stat_reminder.xml` is kept in
   release builds by `res/raw/keep.xml`.
 - Some manufacturers (e.g. Xiaomi, Huawei) stop background work

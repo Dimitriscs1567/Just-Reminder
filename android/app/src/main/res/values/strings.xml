@@ -7,6 +7,10 @@
     <string name="widget_choose">Tap to choose a reminder</string>
     <string name="widget_archived">Archived · tap to choose another</string>
     <string name="widget_deleted">Deleted · tap to choose another</string>
+    <!-- Shorter labels for the compact (1×1) layout. -->
+    <string name="widget_choose_short">Tap to choose</string>
+    <string name="widget_archived_short">Archived</string>
+    <string name="widget_deleted_short">Deleted</string>
     <string name="widget_missed">%1$d missed</string>
     <string name="widget_acknowledge">Acknowledge</string>
     <string name="widget_all_clear">All clear</string>

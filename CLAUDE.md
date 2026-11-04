@@ -71,7 +71,10 @@ More gotchas:
   copying a database into it.
 - Emulator widget test: long-press home → Widgets → search "Just" → tap the
   preview → Add → the configuration screen opens. Notification shade:
-  `adb shell cmd statusbar expand-notifications`.
+  `adb shell cmd statusbar expand-notifications`. Resize: long-press the
+  widget, then `adb shell input swipe` from a handle. A 1×1 cell on the
+  Medium_Phone emulator is about 76×91 dp; Android's docs give 57×102 dp
+  (portrait, 5-column grid) as the narrow case to design for.
 - Windows PowerShell's `Set-Content -Encoding utf8` writes a BOM — avoid it
   for source files.
 - The iOS Swift code cannot be compiled on this machine; metadata
@@ -146,7 +149,8 @@ thumbs down to acknowledge. If its reminder is archived or deleted, the widget
 shows the display name with a neutral "Archived" / "Deleted" label instead of
 the thumb, and tapping it lets the user pick another reminder (Android:
 reopens the widget configuration; iOS: long-press → Edit Widget, which the app
-explains).
+explains). Android widgets are **1×1 by default** and resizable (requested
+2026-11-04); iOS has no 1×1 home screen size, so it stays `systemSmall`.
 
 **Theme:** Material You (dynamic color, Android 12+) with indigo `#4F46E5` /
 teal `#14B8A6` fallback; light/dark follow the system; positive green,
@@ -187,9 +191,14 @@ Reasonable defaults that were reported to the user; ask before changing the
   "N missed" as Android subText / iOS subtitle; on Android the previous
   notification of a reminder disappears when its next one arrives; tapping
   a notification opens the reminder.
-- Widget: Android 2×2 (resizable); tapping the thumb acknowledges only while
-  waiting, anywhere else opens the reminder. iOS widget is `systemSmall`
-  and needs iOS 17 (the app itself stays iOS 15+).
+- Widget: tapping the thumb acknowledges only while waiting, anywhere else
+  opens the reminder. Android compact layout (1×1 and anything smaller than
+  120×160 dp): 48 dp thumb (shrinks when short) with the missed count as a
+  number bubble ("99+" above 99), display name below (2 lines), short
+  labels "Archived" / "Deleted" / "Tap to choose". Large layout (≥ 120×160
+  dp, about 2×2): name on top, 60 dp thumb, "N missed" pill, full labels
+  ("Archived · tap to choose another"). iOS widget is `systemSmall` and
+  needs iOS 17 (the app itself stays iOS 15+).
 
 ## Architecture
 
@@ -332,8 +341,16 @@ records in one transaction. DateTimes are stored as epoch ms ints.
   Android `scheduleWidgetUpdates` at the upcoming times (≤ 500), then
   `updateWidget(qualifiedAndroidName: …ReminderWidgetProvider, iOSName:
   ReminderWidget)`.
-- Android: `ReminderWidgetProvider` (HomeWidgetProvider + RemoteViews
-  `reminder_widget.xml`): waiting → red, thumb tap =
+- Android layouts: `reminder_widget_small.xml` (compact, the 1×1 default)
+  and `reminder_widget.xml` (large), with the same view ids. API 31+ gets
+  both as `RemoteViews(Map<SizeF, RemoteViews>)` (compact at 0×0, large at
+  120×160 dp), so the launcher switches by itself on resize; below API 31
+  the provider picks from the size options (portrait / landscape
+  `RemoteViews`) and redraws in `onAppWidgetOptionsChanged`. The thumbs
+  `widget_thumb_up/down` are single vectors (circle + icon), so the compact
+  thumb can shrink with `adjustViewBounds` without distorting.
+- Android: `ReminderWidgetProvider` (HomeWidgetProvider + RemoteViews):
+  waiting → red, thumb tap =
   `HomeWidgetBackgroundIntent` `justreminder://acknowledge?id=…`
   (home_widget runs `widgetInteractionCallback` via WorkManager), rest opens
   `justreminder://reminder/<id>?homeWidget`; archived / deleted /
@@ -434,4 +451,9 @@ launch), `AcknowledgeReminder` (button while running),
   with the app in the background, widget added/configured, turned red on
   its own at an activation, thumb tap acknowledged, widget tap opened the
   reminder with the correct history. iOS not compiled (Windows).
+- [x] **Widget 1×1 by default** (2026-11-04, after step 4): compact layout
+  for 1×1, large layout from about 2×2, switching on resize. Verified on
+  the Android emulator (light + dark): new widget placed at 1×1, waiting
+  with count bubble, clear, deleted label, thumb tap acknowledges, resize
+  to 2×2 switches layouts. Android < 12 path not run.
 - [ ] Step 5 — Final tests, docs, verification
