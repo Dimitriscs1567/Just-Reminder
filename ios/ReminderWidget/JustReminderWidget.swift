@@ -42,6 +42,15 @@ struct ReminderProvider: AppIntentTimelineProvider {
       return Timeline(entries: [entry(for: nil, at: now)], policy: .never)
     }
     let snapshot = WidgetStore.loadSnapshot(reminder.id)
+    guard snapshot != nil else {
+      // No data yet, e.g. before the first unlock after a restart, when the
+      // App Group can't be read. A deleted reminder leaves a tombstone, so
+      // try again soon instead of showing "Deleted" for hours.
+      return Timeline(
+        entries: [entry(for: reminder, snapshot: nil, at: now)],
+        policy: .after(now.addingTimeInterval(15 * 60))
+      )
+    }
     let changes = (snapshot.map(WidgetStore.upcoming) ?? [])
       .map(WidgetStore.date(fromMillis:))
       .filter { $0 > now }
@@ -118,12 +127,14 @@ struct ReminderWidgetView: View {
   @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
-    VStack(spacing: 8) {
+    // Sized so a 2-line name, the thumb and the "N missed" badge fit the
+    // ~126 pt of a small widget (the name shrinks first when they don't).
+    VStack(spacing: 6) {
       Text(entry.displayName)
         .font(.headline)
         .multilineTextAlignment(.center)
         .lineLimit(2)
-        .minimumScaleFactor(0.8)
+        .minimumScaleFactor(0.75)
         .foregroundStyle(Palette.foreground(entry.status, colorScheme))
 
       switch entry.status {
@@ -163,9 +174,9 @@ struct ReminderWidgetView: View {
 
   private func thumb(down: Bool) -> some View {
     Image(systemName: down ? "hand.thumbsdown.fill" : "hand.thumbsup.fill")
-      .font(.system(size: 28, weight: .semibold))
+      .font(.system(size: 24, weight: .semibold))
       .foregroundStyle(.white)
-      .frame(width: 60, height: 60)
+      .frame(width: 52, height: 52)
       .background(Circle().fill(down ? Palette.negative : Palette.positive))
   }
 

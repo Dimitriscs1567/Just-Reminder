@@ -11,8 +11,9 @@ needs your attention:
 A reminder stays active until you acknowledge it — in the app, on the home
 screen widget, or with the **Acknowledge** button on its notification.
 
-> **Status:** early development. See [Roadmap](#roadmap) for what is already
-> implemented.
+> **Status:** feature complete. Android is tested on the emulator (debug and
+> release builds); the iOS code is written but has not been compiled yet —
+> see [iOS notes](#ios-notes) and [Known limitations](#known-limitations).
 
 ## Features
 
@@ -52,6 +53,8 @@ Each reminder has:
     bunch up. The times are fixed per day, so they don't move when the app
     restarts.
 - *Max activations* always counts **per window** (e.g. per day).
+- In interval mode an activation that lands exactly on the range end counts
+  (09:00–17:00 every 60 min → 9 activations).
 - A one-time reminder with a time range stays within its date (or runs past
   midnight as above).
 
@@ -72,6 +75,8 @@ times, so you can check it is right.
   older notification is replaced by the new one; on iOS they are grouped.
 - Tapping a notification opens the reminder. Acknowledging from the
   notification or the widget works without opening the app.
+- Every activation is kept in the reminder's **history** (acknowledged with
+  time / missed / active). History is kept forever.
 
 ### Permissions
 
@@ -80,10 +85,6 @@ times, so you can check it is right.
 - **Android 12+:** for notifications at the exact minute, allow *Alarms &
   reminders* (the banner opens the setting). Without it Android may deliver
   them a few minutes late.
-- Every activation is kept in the reminder's **history** (acknowledged with
-  time / missed / active). History is kept forever.
-- In interval mode an activation that lands exactly on the range end counts
-  (09:00–17:00 every 60 min → 9 activations).
 
 ### Pause, archive and delete
 
@@ -179,7 +180,7 @@ flutter pub get          # install dependencies
 flutter run              # run on a connected device / emulator
 flutter test             # run unit and widget tests
 flutter analyze          # static analysis
-flutter build apk        # Android release build
+flutter build apk        # Android release build (signed with the debug key)
 ```
 
 ## Platform notes
@@ -189,6 +190,9 @@ flutter build apk        # Android release build
 - Package / application ID: `com.example.just_reminder` (placeholder — change
   `applicationId` and `namespace` in `android/app/build.gradle.kts` and the
   Kotlin package before publishing).
+- Release builds are signed with the debug key (Flutter's default); set up
+  your own [signing configuration](https://docs.flutter.dev/deployment/android#sign-the-app)
+  before publishing.
 - Core library desugaring is enabled (required by
   `flutter_local_notifications`).
 - Permissions: `POST_NOTIFICATIONS` (asked at runtime), `SCHEDULE_EXACT_ALARM`
@@ -236,14 +240,37 @@ anything it reports.
    ticked).
 4. Select the **ReminderWidgetExtension** target → *General* → *Minimum
    Deployments*: **iOS 17.0** (interactive and configurable widgets).
-5. **App Groups** (needs a paid Apple Developer account): for both the
-   **Runner** and **ReminderWidgetExtension** targets, *Signing &
-   Capabilities* → *+ Capability* → *App Groups* → add
-   **`group.com.example.justReminder`**. It must match `iosAppGroupId` in
-   `lib/src/core/app_constants.dart` and `WidgetStore.appGroup`.
-6. Build and run (`flutter run`). If Xcode reports a build cycle involving
-   *Thin Binary*, select the **Runner** target → *Build Phases* and drag
-   *Thin Binary* to the bottom of the list.
+5. **Version:** in the extension's *Build Settings* set *Marketing Version*
+   (`MARKETING_VERSION`) to `$(FLUTTER_BUILD_NAME)` and *Current Project
+   Version* (`CURRENT_PROJECT_VERSION`) to `$(FLUTTER_BUILD_NUMBER)`, and in
+   *Project → Info → Configurations* base the extension's Debug
+   configuration on `Flutter/Debug.xcconfig` and Release/Profile on
+   `Flutter/Release.xcconfig`, so its version always matches the app's.
+6. **Signing and App Groups** (needs a paid Apple Developer account): for
+   both the **Runner** and **ReminderWidgetExtension** targets, *Signing &
+   Capabilities* → pick your *Team*, then *+ Capability* → *App Groups* →
+   add **`group.com.example.justReminder`**. It must match `iosAppGroupId`
+   in `lib/src/core/app_constants.dart` and `WidgetStore.appGroup`. If Xcode
+   won't register the `com.example.*` identifiers, change the bundle ID and
+   the App Group (in Xcode and in both places above); the extension's bundle
+   ID must stay `<app bundle ID>.ReminderWidget`.
+7. Build and run (`flutter run`).
+   - A build cycle involving *Thin Binary*: select the **Runner** target →
+     *Build Phases* and drag *Thin Binary* to the bottom of the list.
+   - Actor-isolation errors in the widget code: newer Xcode templates may
+     set the extension's *Default Actor Isolation* to *MainActor*; set it
+     to *nonisolated* (Build Settings → Swift Compiler – Concurrency) and
+     keep the Swift 5 language mode.
+
+**First test on an iPhone** (the parts that can't be checked on Windows):
+
+1. Create a reminder a few minutes ahead, then **force-quit** the app. When
+   the notification arrives, tap **Acknowledge**, wait a few seconds and
+   reopen the app: the history must show that activation as acknowledged.
+2. Add the widget and pick the reminder (long-press → **Edit Widget**). At
+   the next activation it turns red on its own; tapping the thumbs down
+   turns it green and clears the notification.
+3. Tap the widget elsewhere: the reminder opens in the app.
 
 The iOS widget needs no Flutter code: it reads the data the app stores in
 the App Group and acknowledges with an App Intent that runs in the widget
@@ -266,6 +293,22 @@ extension.
   notifications. With the upcoming times the widget can turn red by itself
   at the right moment (Android redraws it at those times; iOS gets a
   timeline entry for each).
+
+## Known limitations
+
+- **iOS has not been compiled yet** (the code was written on Windows). Expect
+  to fix small things in Xcode the first time.
+- **Activations are planned ahead while the app runs.** Notifications cover
+  the next 14 days, up to 200 on Android and 60 on iOS (which keeps at most
+  64), with each reminder getting its next 3 first. The widgets know up to
+  200 upcoming times per reminder. The app tops this up whenever it runs; with
+  very frequent reminders (e.g. every 5 minutes) it lasts only hours, so open
+  the app now and then.
+- **Time zone changes:** notifications and widget redraws are scheduled as
+  exact moments. After moving to another time zone, open the app once and
+  they move to the new local times.
+- Some Android manufacturers delay background work; see the
+  [Android notes](#android-notes).
 
 ## Project structure
 
@@ -306,4 +349,4 @@ ios/ReminderWidget/         WidgetKit extension sources (Swift)
 - [x] Notifications with Acknowledge action
 - [x] Home screen widgets — Android (tested on the emulator) and iOS
   (written; needs the one-time Xcode setup above)
-- [ ] Final tests and documentation pass
+- [x] Final tests, documentation and release-build check

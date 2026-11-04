@@ -80,6 +80,22 @@ More gotchas:
 - The iOS Swift code cannot be compiled on this machine; metadata
   properties (`title`, `description`, `defaultQuery`, …) are computed
   `static var`s like Apple's templates (safe with Swift 6 concurrency).
+- `HomeWidget.registerInteractivityCallback` is called on Android only: on
+  iOS < 17 home_widget throws (the app would never reach `runApp`), and on
+  iOS 17+ it starts an unused engine (the iOS widget acknowledges in Swift).
+- Release builds aren't debuggable, so `run-as` (database seeding) fails:
+  seed under the debug build, then `adb install -r` the release APK over it
+  (same debug signing key, data kept). For the emulator use
+  `flutter build apk --release --target-platform android-x64` (~22 MB):
+  installing the 55 MB all-ABI APK once froze the emulator (recover with a
+  cold boot, `emulator -avd Medium_Phone -no-snapshot-load`), and the
+  interrupted install removed the home screen widgets.
+- Widget tests run on an 800×600 screen: pump after `ensureVisible` before
+  tapping; a floating SnackBar covers the bottom (scroll the target up
+  first); ListView children scrolled far away aren't built, so scroll back
+  before `find`.
+- `dart format` has never been applied (about 30 files would change); don't
+  reformat whole files as part of unrelated changes.
 
 ## Product decisions
 
@@ -365,7 +381,18 @@ records in one transaction. DateTimes are stored as epoch ms ints.
   extension**: appends to the ack log, rewrites the snapshot, clears and
   re-numbers notifications (`NotificationCleanup`) — no Flutter engine in
   the extension. Archived/deleted → `justreminder://widget-help` (the app
-  explains Edit Widget).
+  explains Edit Widget). A missing snapshot (e.g. App Group unreadable
+  before the first unlock) gets a 15-minute retry instead of the 6-hour
+  reload. Small widget: 52 pt thumb so a 2-line name + "N missed" fit.
+- **iOS open items for the first Mac build** (from an independent review;
+  no compile errors were found): (1) check that the notification's
+  Acknowledge works after a force-quit (README "First test on an iPhone");
+  if not, handle the action natively in `AppDelegate`
+  (`userNotificationCenter(_:didReceive:withCompletionHandler:)` →
+  `WidgetStore.acknowledge` + `NotificationCleanup`, adding those two files
+  to the Runner target); (2) `self as? UNUserNotificationCenterDelegate`
+  may warn "always succeeds" (harmless; it's the plugin's documented
+  line); (3) check the small widget in the Xcode preview.
 
 ### Background acknowledgment (`lib/src/background`)
 
@@ -456,4 +483,14 @@ launch), `AcknowledgeReminder` (button while running),
   the Android emulator (light + dark): new widget placed at 1×1, waiting
   with count bubble, clear, deleted label, thumb tap acknowledges, resize
   to 2×2 switches layouts. Android < 12 path not run.
-- [ ] Step 5 — Final tests, docs, verification
+- [x] **Step 5 — Final tests, docs, verification** (2026-11-05): 13 more
+  tests (120 in total: random range past midnight, max per window, paused
+  one-time reminder archived, notification details, the widget storage
+  contract through a mocked home_widget channel, UI pause/resume, delete
+  confirmation, restore-mode editor). Release build verified on the
+  emulator: notification on time, Acknowledge in the background, widget
+  configuration screen, widget turning red by itself, thumb acknowledging,
+  alarms re-armed after a reboot. Independent review of the iOS code; fixed
+  the iOS < 17 launch crash, the widget's retry when its data can't be read
+  and the small widget's sizing; README Xcode steps completed. README known
+  limitations added; throwaway seed tool removed.

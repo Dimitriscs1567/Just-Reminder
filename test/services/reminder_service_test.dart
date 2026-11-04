@@ -274,6 +274,17 @@ void main() {
     expect((await repository.getReminder(reminder.id))?.isArchived, isTrue);
   });
 
+  test('a paused one-time reminder whose date passed is archived', () async {
+    final reminder = await create(onceAtNine(const LocalDate(2026, 11, 5)));
+    await service.setPaused(reminder.id, paused: true);
+    now = nov(5, 10);
+    await service.syncAll();
+
+    expect((await repository.getReminder(reminder.id))?.isArchived, isTrue);
+    // It was paused at 09:00, so it never activated.
+    expect(await history(reminder.id), isEmpty);
+  });
+
   test('restoring with edits uses the new schedule', () async {
     final reminder = await create(onceAtNine(nov4));
     now = nov(4, 9, 5);

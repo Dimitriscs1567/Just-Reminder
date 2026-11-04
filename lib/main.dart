@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:home_widget/home_widget.dart';
@@ -34,8 +35,12 @@ Future<void> main() async {
       );
     },
   );
-  // Android widget taps (thumbs down) run Dart in the background.
-  await HomeWidget.registerInteractivityCallback(widgetInteractionCallback);
+  // Android widget taps (thumbs down) run Dart in the background. Android
+  // only: the iOS widget acknowledges in Swift, and home_widget throws on
+  // iOS < 17 (and starts an unused engine on iOS 17+).
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    await HomeWidget.registerInteractivityCallback(widgetInteractionCallback);
+  }
 
   final launchedFor = await notifications.launchReminderId();
   events.launchEvent = launchedFor != null

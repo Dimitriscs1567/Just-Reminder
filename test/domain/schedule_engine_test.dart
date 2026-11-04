@@ -109,6 +109,19 @@ void main() {
       ]);
     });
 
+    test('the max counts per window, so it starts over every day', () {
+      final schedule = repeating(
+        const RepeatRecurrence(unit: RepeatUnit.day, startDate: nov4),
+        interval(const LocalTime(9, 0), const LocalTime(17, 0), 60, max: 2),
+      );
+      expect(engine.upcoming(id, schedule, DateTime(2026, 11, 4), count: 4), [
+        DateTime(2026, 11, 4, 9),
+        DateTime(2026, 11, 4, 10),
+        DateTime(2026, 11, 5, 9),
+        DateTime(2026, 11, 5, 10),
+      ]);
+    });
+
     test('an end before the start runs past midnight', () {
       final schedule = onceOn(
         nov4,
@@ -177,6 +190,31 @@ void main() {
       expect(
         engine.windowActivations('reminder-2', timing, nov4),
         isNot(base),
+      );
+    });
+
+    test('a window past midnight is spread the same way', () {
+      final late = random(const LocalTime(22, 0), const LocalTime(2, 0), 4);
+      final times = engine.windowActivations(id, late, nov4);
+      expect(times, hasLength(4));
+      for (var i = 0; i < 4; i++) {
+        // 22:00, 23:00, 00:00 and 01:00 slots (DateTime rolls hour 24 over).
+        final slotStart = DateTime(2026, 11, 4, 22 + i);
+        final slotEnd = slotStart.add(const Duration(hours: 1));
+        expect(times[i].isBefore(slotStart), isFalse, reason: 'slot $i');
+        expect(times[i].isBefore(slotEnd), isTrue, reason: 'slot $i');
+      }
+
+      // After midnight the window that started the day before is found.
+      final midnight = DateTime(2026, 11, 5);
+      expect(
+        engine.between(
+          id,
+          onceOn(nov4, late),
+          midnight,
+          DateTime(2026, 11, 5, 3),
+        ),
+        [for (final at in times) if (at.isAfter(midnight)) at],
       );
     });
 
