@@ -14,6 +14,7 @@ import 'src/services/app_events.dart';
 import 'src/services/notifications/notification_plan.dart';
 import 'src/services/notifications/notification_service.dart';
 import 'src/state/providers.dart';
+import 'src/ui/screens/widget_config/list_widget_configuration_app.dart';
 import 'src/ui/screens/widget_config/widget_configuration_app.dart';
 
 Future<void> main() async {
@@ -85,9 +86,22 @@ Future<void> main() async {
 @pragma('vm:entry-point')
 Future<void> widgetConfigurationMain() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final appWidgetId = int.tryParse(
-    await HomeWidget.initiallyLaunchedFromHomeWidgetConfigure() ?? '',
-  );
+  final appWidgetId = await _configuredWidgetId();
   if (appWidgetId == null) return main();
   runApp(WidgetConfigurationApp(appWidgetId: appWidgetId));
 }
+
+/// Android: entry point of `ListWidgetConfigurationActivity`, which picks
+/// the reminders a list widget shows (and their order).
+@pragma('vm:entry-point')
+Future<void> listWidgetConfigurationMain() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final appWidgetId = await _configuredWidgetId();
+  if (appWidgetId == null) return main();
+  runApp(ListWidgetConfigurationApp(appWidgetId: appWidgetId));
+}
+
+/// The app widget being set up, when the launcher started this activity.
+Future<int?> _configuredWidgetId() async => int.tryParse(
+  await HomeWidget.initiallyLaunchedFromHomeWidgetConfigure() ?? '',
+);

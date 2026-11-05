@@ -44,13 +44,26 @@ struct ReminderQuery: EntityQuery {
   }
 }
 
-/// The widget's setting: which reminder it shows (long-press → Edit Widget).
+/// The one-reminder widget's setting: which reminder it shows
+/// (long-press → Edit Widget).
 struct SelectReminderIntent: WidgetConfigurationIntent {
   static var title: LocalizedStringResource { "Choose reminder" }
   static var description: IntentDescription { "Pick the reminder this widget shows." }
 
   @Parameter(title: "Reminder")
   var reminder: ReminderEntity?
+
+  init() {}
+}
+
+/// The list widget's setting: which reminders it shows, in this order
+/// (long-press → Edit Widget; the order is the order they are added in).
+struct SelectRemindersIntent: WidgetConfigurationIntent {
+  static var title: LocalizedStringResource { "Choose reminders" }
+  static var description: IntentDescription { "Pick the reminders this widget lists, in order." }
+
+  @Parameter(title: "Reminders")
+  var reminders: [ReminderEntity]?
 
   init() {}
 }

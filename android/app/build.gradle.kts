@@ -52,4 +52,8 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // The list widget's rows (RemoteViewsCompat.setRemoteAdapter: inline
+    // collection items, with a fallback service before Android 12). Same
+    // version home_widget's Glance dependency already pulls in.
+    implementation("androidx.core:core-remoteviews:1.1.0")
 }

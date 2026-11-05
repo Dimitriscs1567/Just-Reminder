@@ -1,10 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Missed-count bubble on the compact widget's thumb. The ring in the
-     widget's background color sets it off from the red thumb. -->
+<!-- Missed-count bubble in the compact widget's corner: neutral, never
+     red. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <corners android:radius="10dp" />
-    <solid android:color="@color/widget_negative" />
-    <stroke
-        android:width="2dp"
-        android:color="@color/widget_waiting" />
+    <corners android:radius="9dp" />
+    <solid android:color="@color/widget_bubble" />
 </shape>

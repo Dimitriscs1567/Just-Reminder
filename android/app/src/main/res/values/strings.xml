@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- One-reminder widget. -->
     <string name="widget_label">Reminder</string>
-    <string name="widget_description">One reminder at a glance: thumbs up when all is clear, thumbs down when it needs you. Tap the thumbs down to mark it done.</string>
+    <string name="widget_description">One reminder at a glance. When it is due, tap the thumbs-up to mark it done.</string>
     <string name="widget_default_title">Just Reminder</string>
-    <string name="widget_preview_title">Water</string>
     <string name="widget_choose">Tap to choose a reminder</string>
     <string name="widget_archived">Archived · tap to choose another</string>
     <string name="widget_deleted">Deleted · tap to choose another</string>
@@ -12,6 +12,30 @@
     <string name="widget_archived_short">Archived</string>
     <string name="widget_deleted_short">Deleted</string>
     <string name="widget_missed">%1$d missed</string>
-    <string name="widget_acknowledge">Done</string>
-    <string name="widget_all_clear">All clear</string>
+
+    <!-- What the state icon says (screen readers). -->
+    <string name="widget_state_firing">Due. Mark it done</string>
+    <string name="widget_state_missed">Missed</string>
+    <string name="widget_state_done">Nothing due</string>
+    <string name="widget_state_paused">Paused</string>
+
+    <!-- List widget. -->
+    <string name="list_widget_label">Reminders</string>
+    <string name="list_widget_description">Several reminders at a glance, in the order you choose. When one is due, tap its thumbs-up to mark it done.</string>
+    <string name="list_widget_title">Reminders</string>
+    <string name="list_widget_choose">Tap to choose reminders</string>
+    <!-- A row's status (from the approved mockup: "Due · 1 missed",
+         "Missed · 2", "Done"). -->
+    <string name="widget_status_due">Due</string>
+    <string name="widget_status_due_missed">Due · %1$d missed</string>
+    <string name="widget_status_missed">Missed</string>
+    <string name="widget_status_missed_count">Missed · %1$d</string>
+    <string name="widget_status_done">Done</string>
+    <string name="widget_status_done_missed">Done · %1$d missed</string>
+    <string name="widget_status_paused">Paused</string>
+    <string name="widget_status_paused_missed">Paused · %1$d missed</string>
+
+    <!-- Widget picker previews. -->
+    <string name="widget_preview_title">Water</string>
+    <string name="widget_preview_title_2">Stretch</string>
 </resources>

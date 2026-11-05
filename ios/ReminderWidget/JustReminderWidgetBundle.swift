@@ -5,5 +5,6 @@ import WidgetKit
 struct JustReminderWidgetBundle: WidgetBundle {
   var body: some Widget {
     ReminderWidget()
+    ReminderListWidget()
   }
 }

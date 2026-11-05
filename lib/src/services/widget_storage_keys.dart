@@ -24,6 +24,12 @@ abstract final class WidgetStorageKeys {
   /// (not deleted ones). Widget configuration lists the non-archived ones.
   static const index = 'jr.reminders';
 
-  /// Android only: the reminder id an app widget instance shows.
+  /// Android only: the reminder id a one-reminder widget instance shows.
   static String androidWidget(int appWidgetId) => 'jr.widget.$appWidgetId';
+
+  /// Android only: JSON array of the reminder ids a list widget instance
+  /// shows, in the order the user picked. (iOS keeps both choices in the
+  /// widgets' own configuration.)
+  static String androidListWidget(int appWidgetId) =>
+      'jr.listwidget.$appWidgetId';
 }

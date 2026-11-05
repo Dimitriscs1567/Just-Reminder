@@ -12,12 +12,13 @@ import '../services/notifications/notification_service.dart';
 import '../services/widget/widget_bridge.dart';
 import '../services/widget/widget_snapshot.dart';
 
-// Entry points that run in background isolates: a tap on the Android
-// widget's thumb, and the notification's Done button. They must never open
+// Entry points that run in background isolates: a tap on an Android
+// widget's thumbs-up, and the notification's Done button. They must never open
 // the database (sembast is main-isolate only); they log the Done mark for
 // the app's next sync and update widget + notifications right away.
 
-/// home_widget interactivity callback (Android widget taps).
+/// home_widget interactivity callback (Android widget taps on the
+/// thumbs-up, in either widget).
 @pragma('vm:entry-point')
 Future<void> widgetInteractionCallback(Uri? uri) async {
   final reminderId = reminderToMarkDone(uri);
@@ -57,7 +58,7 @@ Future<void> markDoneInBackground(String reminderId) async {
   final doneStart = snapshot == null
       ? null
       : dueOccurrenceStartAt(snapshot, now);
-  if (snapshot != null && widgetStatusAt(snapshot, now).isWaiting) {
+  if (snapshot != null && widgetStatusAt(snapshot, now).isFiring) {
     await widgets.writeSnapshot(
       reminderId,
       doneWidgetSnapshot(snapshot, at: now, engine: const ScheduleEngine()),

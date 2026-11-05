@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The list widget: 4×2 by default, resizable (the list scrolls). The
+     configuration activity asks which reminders it shows, in which order;
+     it can be changed later (reconfigurable). updatePeriodMillis is only a
+     fallback: the app schedules redraws at every upcoming change. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:configure="com.example.just_reminder.ListWidgetConfigurationActivity"
+    android:description="@string/list_widget_description"
+    android:initialLayout="@layout/reminder_list_widget"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="40dp"
+    android:previewLayout="@layout/reminder_list_widget_preview"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen"
+    android:widgetFeatures="reconfigurable" />

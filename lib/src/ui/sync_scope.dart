@@ -128,8 +128,8 @@ class _SyncScopeState extends ConsumerState<SyncScope> {
             icon: const Icon(Icons.widgets_outlined),
             title: const Text('Choose another reminder'),
             content: const Text(
-              'This widget’s reminder was archived or deleted. Long-press the '
-              'widget, tap Edit Widget and pick another reminder.',
+              'A reminder on this widget was archived or deleted. Long-press '
+              'the widget, tap Edit Widget and pick another one.',
             ),
             actions: [
               FilledButton(

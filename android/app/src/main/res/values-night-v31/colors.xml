@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Android 12+, dark: neutral widget background from the wallpaper. -->
+<!-- Android 12+, dark: neutral widget colors from the wallpaper. -->
 <resources>
     <color name="widget_neutral">@android:color/system_neutral1_800</color>
     <color name="widget_on_neutral">@android:color/system_neutral1_50</color>
+    <color name="widget_neutral_variant">@android:color/system_neutral2_200</color>
+    <color name="widget_outline">@android:color/system_neutral2_400</color>
 </resources>

@@ -123,6 +123,21 @@ More gotchas:
   binary: Invalid kernel binary" in logcat, stuck on the splash): reinstall
   it. A snapshot boot can hang too (qemu idle): `emulator -avd Medium_Phone
   -no-snapshot-load`.
+- RemoteViews colors given as ints (`setTextColor(id, context.getColor(…))`)
+  are resolved in the app's process and **don't follow light/dark mode**
+  until the next widget update (found on the emulator: dark text on the dark
+  list). Use `setTextColorResource` (`RemoteViewsColors.kt`: on API 31+
+  `setColorStateList` with the resource, resolved by the launcher);
+  backgrounds and images given as resource ids follow by themselves.
+- To test widgets "without the app", kill its process with `adb shell am
+  kill com.example.just_reminder` — `am force-stop` also cancels its alarms
+  (scheduled widget redraws and notifications) until the app runs again.
+- Flutter screens show up in `adb shell uiautomator dump` (texts as
+  `content-desc`), handy to find what to tap. The Pixel launcher's widget
+  long-press menu has **Settings** = reconfigure (opens the setup activity).
+- Widget layouts: in a collection (`ListView` rows) `setOnClickPendingIntent`
+  is ignored — use one `setPendingIntentTemplate` + `setOnClickFillInIntent`
+  per row (see the list widget).
 
 ## Product decisions
 
@@ -215,25 +230,28 @@ action, history).
 **Extras chosen:** pause/resume, end date for recurring, schedule preview
 (next few times in the editor). *Not* chosen: snooze.
 
-**Widget:** one widget per reminder (user picks the reminder when adding it).
-Until step 8 it keeps its 2026-11-04 look: display name, thumb (green up /
-red down) and a "N missed" badge; tap the thumbs down to mark it done. If its
-reminder is archived or deleted, the widget shows the display name with a
-neutral "Archived" / "Deleted" label instead of the thumb, and tapping it
-lets the user pick another reminder (Android: reopens the widget
-configuration; iOS: long-press → Edit Widget, which the app explains).
-Android widgets are **1×1 by default** and resizable (requested 2026-11-04);
-iOS has no 1×1 home screen size, so it stays `systemSmall`.
-
-**Pending for step 8 (agreed 2026-11-05):**
-- The widgets show the three states with the new look; done is a
-  **translucent** tile that blends into the wallpaper.
-- **List widget** (new, Android and iOS): the user picks several reminders
-  in its setup and they are shown in the **order picked** (tick order, drag
-  to reorder). One row per reminder: state icon, display name, status;
-  resizable; on Android it scrolls when they don't fit. An archived or
-  deleted reminder keeps its row with a neutral "Archived" / "Deleted"
-  label.
+**Widgets** (2026-11-04, revised 2026-11-05; built in step 8 from the
+approved mockup):
+- Both widgets show the **three states with the app's look**: firing = teal
+  tile, teal ring with a thumbs-up (tap it for **Done**); missed = neutral
+  tile, gray dashed ring with a thumbs-up crossed by a dashed line; done = a
+  check on a **translucent** tile that blends into the wallpaper, **60 %
+  opaque** (white in light mode, black in dark; kept by the user on
+  2026-11-05 after the emulator check — the mockup's 35 % made the name hard
+  to read over dark wallpaper). The same-day missed count is a neutral gray
+  bubble.
+- **One-reminder widget**: one widget per reminder (picked when adding
+  it). Android widgets are **1×1 by default** and resizable (requested
+  2026-11-04); iOS has no 1×1 home screen size, so it is `systemSmall`.
+- **List widget** (Android and iOS): the user picks several reminders in
+  its setup and they are shown in the **order picked** (tick order, drag to
+  reorder). One row per reminder: state icon, display name, status
+  ("Due · 1 missed", "Missed · 2", "Done" — from the mockup), the firing
+  one on a teal row; resizable; on Android it scrolls when they don't fit.
+- An archived or deleted reminder keeps its place with a neutral
+  "Archived" / "Deleted" label; tapping it lets the user pick another
+  (Android: reopens the widget's setup; iOS: long-press → Edit Widget,
+  which the app explains).
 
 **Theme:** Material You (dynamic color, Android 12+) with indigo `#4F46E5` /
 teal `#14B8A6` fallback; light/dark follow the system; a due reminder is
@@ -296,14 +314,31 @@ Reasonable defaults that were reported to the user; ask before changing the
   a notification opens the reminder. The Done action keeps its old id
   (`acknowledge`) and the widget's URL its old host, so notifications and
   widgets from older versions keep working.
-- Widget: tapping the thumb marks it done only while due, anywhere else
-  opens the reminder. Android compact layout (1×1 and anything smaller than
-  120×160 dp): 48 dp thumb (shrinks when short) with the missed count as a
-  number bubble ("99+" above 99), display name below (2 lines), short
-  labels "Archived" / "Deleted" / "Tap to choose". Large layout (≥ 120×160
-  dp, about 2×2): name on top, 60 dp thumb, "N missed" pill, full labels
-  ("Archived · tap to choose another"). iOS widget is `systemSmall` and
-  needs iOS 17 (the app itself stays iOS 15+).
+- Widgets: tapping the state icon marks it done only while due, anywhere
+  else opens the reminder. A **paused** reminder with nothing due shows the
+  app's faint pause sign (status "Paused"). Widgets redraw at every time
+  becoming due or missed **and at midnight** (a new day starts clean).
+  Android compact layout (1×1 and anything smaller than 120×160 dp): 40 dp
+  state icon (shrinks when short) above the display name (2 lines), the
+  missed count as a number bubble in the tile's top-right corner (as in
+  the mockup; "99+" above 99), short labels "Archived" / "Deleted" / "Tap
+  to choose". Large layout (≥ 120×160 dp, about 2×2): name on top, 64 dp
+  icon, "N missed" pill, full labels ("Archived · tap to choose another").
+  iOS widgets need iOS 17 (the app itself stays iOS 15+).
+- List widget: row statuses "Due" / "Missed" / "Done" / "Paused", with
+  " · N missed" (missed: " · N") when the day has misses; "Archived" /
+  "Deleted" rows have no icon and a faint name. Android: 4×2 by default,
+  resizable down to about 2×1, header "Reminders" (tap opens the app), "Tap
+  to choose reminders" until set up, changed later with the launcher's
+  reconfigure button. Its setup screen lists "On the widget" (ticked, in
+  order, with drag handles) and "More reminders"; ticking appends,
+  unticking removes; archived reminders can't be picked, and archived /
+  deleted ones already on the widget stay until unticked; "Add widget"
+  (new) / "Save" (set up before). iOS: `systemMedium` (3 rows) and
+  `systemLarge` (8 rows), "+N more" when they don't fit (iOS widgets can't
+  scroll); the order is the Edit Widget order.
+- iOS widgets can't be translucent: "done" uses the plain widget
+  background (white / `#1C1C1E`).
 
 ## Architecture
 
@@ -311,7 +346,8 @@ Reasonable defaults that were reported to the user; ask before changing the
 lib/
   main.dart     main(): App Group, notification plugin + handlers, widget
                 interactivity callback, launch event, DB, ProviderScope;
-                widgetConfigurationMain(): Android widget configuration
+                widgetConfigurationMain() / listWidgetConfigurationMain():
+                Android widget setup screens
   src/
     background/ background_handlers.dart — widget tap / notification
                 button entry points (no database)
@@ -331,9 +367,13 @@ lib/
                 (home, editor, details, archive, widget_config),
                 formatting, actions, sync_scope.dart
 android/app/src/main/kotlin/com/example/just_reminder/
-                ReminderWidgetProvider, WidgetStore, WidgetConfigurationActivity
+                ReminderWidgetProvider, ReminderListWidgetProvider,
+                WidgetStore, WidgetLook, WidgetIntents, RemoteViewsColors,
+                WidgetActionActivity, WidgetConfigurationActivity,
+                ListWidgetConfigurationActivity
 ios/ReminderWidget/
-                WidgetKit extension (needs the Xcode target, see README)
+                WidgetKit extension: ReminderWidget + ReminderListWidget
+                (needs the Xcode target, see README)
 tool/app_icon/  app icon design + generator (writes the Android and iOS
                 icon files; run as a flutter test)
 ```
@@ -471,56 +511,83 @@ records in one transaction. DateTimes are stored as epoch ms ints.
 ### Widgets (`lib/src/services/widget`, native code)
 
 - Storage contract (`WidgetStorageKeys`, mirrored in `WidgetStore.kt` /
-  `WidgetStore.swift`): `jr.reminder.<id>` snapshot JSON (`v, id, name,
-  displayName, state live|paused|archived|deleted, asOf, pendingAt,
-  missedCount, upcoming[], pending{start, due, missesAt}?,
-  occurrences[{start, due, missesAt}], reminder{}`), `jr.reminders` index
-  (`[{id, name, displayName, archived}]`), `jr.acks.<id>` Done log,
-  Android `jr.widget.<appWidgetId>` → reminder id. Deleted reminders keep a
-  tombstone snapshot.
-- State at time t (same in Dart `widgetStatusAt`, Kotlin, Swift) — the
-  2026-11-04 rule, until step 8 gives the widgets the three states:
-  `total = (pendingAt != null ? 1 + missedCount : 0) + |upcoming ∩ (asOf, t]|`
-  (`pendingAt` / `upcoming` = due times, `missedCount` = the pending
-  occurrence's date); waiting if `total > 0`, missed = `total − 1`. A time
-  missed at its end still shows as waiting until the app publishes again.
-- `pending` / `occurrences` tell a Done outside the app which occurrence it
-  finishes: `dueOccurrenceStartAt` (Dart) / `WidgetStore.dueOccurrenceStart`
-  (Swift) = the latest due by then, unless already missed.
+  `WidgetStore.swift`): `jr.reminder.<id>` snapshot JSON, version 2:
+  `v, id, name, displayName, state live|paused|archived|deleted, asOf,
+  pending{date, start, due, missesAt}?, missed{date, count}?, last{date,
+  start, status done|missed, at}?, occurrences[{date, start, due,
+  missesAt}], reminder{}` — the runtime at `asOf` plus the next times (due
+  after `asOf`, ≤ 14 days, ≤ 200); dates are local `YYYY-MM-DD`.
+  `jr.reminders` index (`[{id, name, displayName, archived}]`),
+  `jr.acks.<id>` Done log, Android `jr.widget.<appWidgetId>` → reminder id
+  and `jr.listwidget.<appWidgetId>` → JSON array of ids in order. Deleted
+  reminders keep a tombstone snapshot.
+- State at time t — the same in Dart (`widgetStatusAt`), Kotlin
+  (`WidgetStore.reminderState`) and Swift (`WidgetStore.state`): replay the
+  snapshot like `advanceRuntime` without Done marks (due times in
+  `(asOf, t]`, misses at `missesAt ≤ t`, miss before due at the same
+  instant, a due time replacing a pending one misses it, a miss counts for
+  its time's date), then like `ReminderStanding` (firing with the due
+  time's date count; else missed if today's last outcome was missed, done
+  otherwise, with today's count; paused when not firing). A test checks it
+  against `ReminderStanding` every 5 minutes over two days. Version 1
+  snapshots (no dates, no `missed` / `last`) still read: a time's date is
+  the local date of its start.
+- `widgetChangeTimes` (Dart) / `WidgetStore.changeTimes` (Swift): due
+  times, misses and every midnight after `asOf` up to the horizon. A Done
+  outside the app: `doneWidgetSnapshot` (Dart) / `WidgetStore.markDone`
+  (Swift) replay to now, finish the due time (the count stays), rewrite
+  the snapshot; `dueOccurrenceStartAt` = the time due then.
 - `WidgetBridge.publish` (after every change): snapshots, index, tombstones,
-  Android `scheduleWidgetUpdates` at the upcoming due times (≤ 500), then
-  `updateWidget(qualifiedAndroidName: …ReminderWidgetProvider, iOSName:
-  ReminderWidget)`.
-- Android layouts: `reminder_widget_small.xml` (compact, the 1×1 default)
-  and `reminder_widget.xml` (large), with the same view ids. API 31+ gets
-  both as `RemoteViews(Map<SizeF, RemoteViews>)` (compact at 0×0, large at
-  120×160 dp), so the launcher switches by itself on resize; below API 31
-  the provider picks from the size options (portrait / landscape
-  `RemoteViews`) and redraws in `onAppWidgetOptionsChanged`. The thumbs
-  `widget_thumb_up/down` are single vectors (circle + icon), so the compact
-  thumb can shrink with `adjustViewBounds` without distorting.
-- Android: `ReminderWidgetProvider` (HomeWidgetProvider + RemoteViews):
-  waiting → red, thumb tap =
+  Android `scheduleWidgetUpdates` at the change times (≤ 500, one schedule
+  per provider: `ReminderWidgetProvider` and `ReminderListWidgetProvider`),
+  then `updateWidgets()` (both Android providers, iOS kinds
+  `ReminderWidget` and `ReminderListWidget`).
+- Android look: `WidgetLook.kt` maps a state to tile, text color, icon;
+  colors in `values*/colors.xml` (teal fixed, neutrals Material You on API
+  31+); state icons are generated vector drawables
+  (`res/drawable/widget_state_{firing,missed,done,paused}.xml`,
+  `widget_row_done.xml`; geometry = `StatusIcon` on a 48-unit tile, made
+  with a throwaway script in step 8 — edit the XML directly). The missed
+  slash's gap is cut out with a `clip-path` (tile rect + band wound the
+  other way, like the app icon), so it works on any background.
+- Android one-reminder widget: layouts `reminder_widget_small.xml`
+  (compact, the 1×1 default) and `reminder_widget.xml` (large), same view
+  ids. API 31+ gets both as `RemoteViews(Map<SizeF, RemoteViews>)`
+  (compact at 0×0, large at 120×160 dp), so the launcher switches by
+  itself on resize; below API 31 the provider picks from the size options
+  and redraws in `onAppWidgetOptionsChanged`. Icon tap while firing =
   `HomeWidgetBackgroundIntent` `justreminder://acknowledge?id=…`
-  (home_widget runs `widgetInteractionCallback` via WorkManager), rest opens
-  `justreminder://reminder/<id>?homeWidget`; archived / deleted /
-  unconfigured → label, tap reopens `WidgetConfigurationActivity`
-  (`FlutterActivity` with entry point `widgetConfigurationMain` → Flutter
-  picker reading the index, then `finishHomeWidgetConfigure`). Material You
-  neutral colors on API 31+ (`values-v31`).
-- iOS (`ios/ReminderWidget`, iOS 17+): `AppIntentConfiguration` with
-  `SelectReminderIntent` (entities from the index; unknown ids resolve to a
-  "deleted" entity), timeline entry now + one per upcoming due time,
-  thumbs-down `Button(intent: AcknowledgeReminderIntent)` runs **in the
-  extension**: `WidgetStore.markDone` appends to the Done log, rewrites the
-  snapshot and returns the finished occurrence's start;
-  `NotificationCleanup.done` clears the tray, cancels that occurrence's
-  remaining notifications and lowers "N missed" on the date's later ones
-  (payload `s` / `m`) — no Flutter engine in the extension.
-  Archived/deleted → `justreminder://widget-help` (the app explains Edit
-  Widget). A missing snapshot (e.g. App Group unreadable before the first
-  unlock) gets a 15-minute retry instead of the 6-hour reload. Small
-  widget: 52 pt thumb so a 2-line name + "N missed" fit.
+  (home_widget runs `widgetInteractionCallback` via WorkManager), rest
+  opens `justreminder://reminder/<id>?homeWidget` (`WidgetIntents.kt`);
+  archived / deleted / unconfigured → label, tap reopens
+  `WidgetConfigurationActivity` (`widgetConfigurationMain`).
+- Android list widget: `ReminderListWidgetProvider` builds the rows with
+  `RemoteViewsCompat.setRemoteAdapter` (`androidx.core:core-remoteviews`,
+  inline items on API 31+, its own service below). Items of a collection
+  can't have PendingIntents, so the `ListView` gets one mutable template
+  to `WidgetActionActivity` (`Theme.NoDisplay`, finishes at once) and each
+  row fill-in URIs: acknowledge → sends the home_widget background
+  broadcast; `reminder/<id>` → starts `MainActivity` with home_widget's
+  LAUNCH action (verified on the emulator: `BAL_ALLOW_VISIBLE_WINDOW`);
+  `configure/<appWidgetId>` → `ListWidgetConfigurationActivity`
+  (`listWidgetConfigurationMain` → `ListWidgetConfigurationScreen`).
+- iOS (`ios/ReminderWidget`, iOS 17+): `ReminderWidget` (`systemSmall`,
+  `SelectReminderIntent`) and `ReminderListWidget` (`systemMedium` /
+  `systemLarge`, `SelectRemindersIntent` with `[ReminderEntity]`) in one
+  bundle; shared views in `WidgetViews.swift` (`Palette`, `StateIcon` —
+  dashed ring via `StrokeStyle.dash`, slash gap in the background color —,
+  `MissedBubble`, `statusText`). Timelines: an entry now + one per change
+  time (union over the list's reminders, ≤ 100). The thumbs-up is a
+  `Button(intent: AcknowledgeReminderIntent)` that runs **in the
+  extension**: `WidgetStore.markDone` logs the Done, rewrites the snapshot
+  and returns the finished time's start; `NotificationCleanup.done` clears
+  the tray, cancels that time's remaining notifications and lowers
+  "N missed" on the date's later ones (payload `s` / `m`); both widget
+  kinds reload — no Flutter engine in the extension. List rows open the
+  reminder with a `Link`. Archived/deleted →
+  `justreminder://widget-help` (the app explains Edit Widget). A missing
+  snapshot (App Group unreadable before the first unlock) gets a 15-minute
+  retry instead of the 6-hour reload.
 - **iOS open items for the first Mac build** (from an independent review;
   no compile errors were found): (1) check that the notification's Done
   works after a force-quit (README "First test on an iPhone"); if not,
@@ -529,14 +596,17 @@ records in one transaction. DateTimes are stored as epoch ms ints.
   `WidgetStore.markDone` + `NotificationCleanup.done`, adding those two
   files to the Runner target); (2) `self as? UNUserNotificationCenterDelegate`
   may warn "always succeeds" (harmless; it's the plugin's documented
-  line); (3) check the small widget in the Xcode preview.
+  line); (3) check both widgets in the Xcode preview (light and dark) —
+  step 8's SwiftUI (`StateIcon`, list rows with a `Button` next to a
+  `Link`) has not been compiled either.
 
 ### Done outside the app (`lib/src/background`)
 
-`markDoneInBackground(id)`: Done log + done snapshot (+ `updateWidgets`) +
-clear tray + `afterDoneOutsideApp` for the occurrence from
-`dueOccurrenceStartAt`. Used by `widgetInteractionCallback` (Android
-widget) and `notificationBackgroundHandler` (Done button, both platforms).
+`markDoneInBackground(id)`: Done log + done snapshot when firing (+
+`updateWidgets`) + clear tray + `afterDoneOutsideApp` for the occurrence
+from `dueOccurrenceStartAt`. Used by `widgetInteractionCallback` (both
+Android widgets) and `notificationBackgroundHandler` (Done button, both
+platforms).
 `AppEvents` (main isolate): `OpenReminder` (notification/widget tap,
 launch), `MarkReminderDone` (button while running),
 `ExplainWidgetEditing`; handled in `SyncScope`.
@@ -589,8 +659,11 @@ launch), `MarkReminderDone` (button while running),
   brightness and **not harmonized**; missed and done use the scheme's
   neutrals (`outline`, `onSurfaceVariant`, `surfaceContainerHigh`). Dark
   cards use `surfaceContainerHigh`. Widget colors (Android
-  `values*/colors.xml`, iOS `Palette`) are separate constants (still the
-  2026-11-04 green/red until step 8).
+  `values*/colors.xml`, iOS `Palette` in `WidgetViews.swift`) are separate
+  constants from the approved mockup (firing tile `#D5F5EE` / dark
+  `#113F3A`, ring `#0F766E` / `#2DD4BF`, missed gray `#888780`, bubble
+  `#5F5E5A`, done tile white 60 % / black 60 % — the mockup had 35 %,
+  raised on the emulator: the name was hard to read over dark wallpaper).
 - Components: `StatusIcon` (`StatusIconKind.of(status)`: teal ring +
   thumbs-up, dashed ring + slashed thumb drawn with painters, faint check;
   `surface` = the color behind it, for the slash's cut-out; `heroTag` =
@@ -718,5 +791,21 @@ launch), `MarkReminderDone` (button while running),
   showed "Done 9:44 PM · next 9:47 PM", then due at 21:47 and missed at
   21:49 ("1 missed", notification removed). The widgets still have the
   old look and two states (step 8). iOS not compiled.
-- [ ] **Step 8 — Widgets**: the single widget's three states and new look,
-  and the new list widget with several reminders (Android and iOS).
+- [x] **Step 8 — Widgets** (2026-11-05): both platforms' widgets show the
+  three states with the app's look (snapshot version 2: the widgets replay
+  the runtime like the app, checked against `ReminderStanding` in a test;
+  redraws at due times, misses and midnight); the one-reminder widget got
+  the new look (teal / dashed / translucent check, corner bubble); the new
+  list widget (Android `ReminderListWidgetProvider` + Flutter setup with
+  tick order and drag to reorder; iOS `ReminderListWidget`). 167 tests.
+  Verified on the Android emulator (light and dark): added the list widget
+  (picker previews, setup, drag, Add widget), a 1×1 for a new reminder;
+  with the app's process killed, the widgets turned due (22:45, 22:50) and
+  missed (22:55, dashed ring + "1" / "Missed · 1") on time; Done from the
+  1×1 ring and from a list row's ring (the trampoline shows nothing, the
+  notification was cleared, history shows the Done); a row tap opens the
+  reminder; launcher Settings reopens the setup with Save; an archived
+  reminder's row says "Archived" and opens the setup; 2×2 large layout.
+  Found and fixed on the emulator: text colors not following dark mode,
+  and the done tile's name hard to read over dark wallpaper (35 % → 60 %).
+  iOS not compiled.

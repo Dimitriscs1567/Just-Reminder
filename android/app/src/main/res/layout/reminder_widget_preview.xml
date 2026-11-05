@@ -1,28 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- What the widget picker shows (Android 12+), at the default 1×1 size. -->
+<!-- What the widget picker shows (Android 12+), at the default 1×1 size: a
+     reminder that is due. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/widget_background_clear"
+    android:background="@drawable/widget_background_firing"
     android:clipToOutline="true"
     android:gravity="center"
     android:orientation="vertical"
     android:padding="6dp">
 
     <ImageView
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:contentDescription="@string/widget_all_clear"
-        android:src="@drawable/widget_thumb_up" />
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:contentDescription="@string/widget_state_firing"
+        android:src="@drawable/widget_state_firing" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
+        android:layout_marginTop="4dp"
+        android:fontFamily="sans-serif-medium"
         android:gravity="center"
         android:maxLines="2"
         android:text="@string/widget_preview_title"
-        android:textColor="@color/widget_on_clear"
-        android:textSize="12sp"
-        android:textStyle="bold" />
+        android:textColor="@color/widget_on_firing"
+        android:textSize="12sp" />
 </LinearLayout>

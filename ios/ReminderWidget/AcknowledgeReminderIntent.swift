@@ -1,7 +1,7 @@
 import AppIntents
 import WidgetKit
 
-/// The widget's Done button (iOS 17 interactive widgets). Runs in the
+/// The widgets' Done button (iOS 17 interactive widgets). Runs in the
 /// widget extension, so it works without starting the app: the app applies
 /// the logged Done mark to its history the next time it runs. (The type
 /// name predates the "Done" wording.)
@@ -22,8 +22,9 @@ struct AcknowledgeReminderIntent: AppIntent {
   func perform() async throws -> some IntentResult {
     let finished = WidgetStore.markDone(reminderId, at: Date())
     await NotificationCleanup.done(reminderId, occurrenceStart: finished)
-    // Other widgets showing the same reminder.
+    // Every widget showing the same reminder, one-reminder and list ones.
     WidgetCenter.shared.reloadTimelines(ofKind: ReminderWidget.kind)
+    WidgetCenter.shared.reloadTimelines(ofKind: ReminderListWidget.kind)
     return .result()
   }
 }

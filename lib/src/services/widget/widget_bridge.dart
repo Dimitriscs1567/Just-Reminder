@@ -36,19 +36,28 @@ class WidgetIndexEntry {
 class WidgetBridge {
   const WidgetBridge();
 
-  /// Fully qualified Android `AppWidgetProvider`.
+  /// Fully qualified Android `AppWidgetProvider` of the one-reminder
+  /// widget.
   static const androidProvider =
       'com.example.just_reminder.ReminderWidgetProvider';
 
-  /// iOS WidgetKit `kind` of the reminder widget.
+  /// Fully qualified Android `AppWidgetProvider` of the list widget.
+  static const androidListProvider =
+      'com.example.just_reminder.ReminderListWidgetProvider';
+
+  /// iOS WidgetKit `kind` of the one-reminder widget.
   static const iosKind = 'ReminderWidget';
 
-  /// Android re-renders widgets at these many upcoming due times at most.
+  /// iOS WidgetKit `kind` of the list widget.
+  static const iosListKind = 'ReminderListWidget';
+
+  /// Android redraws the widgets at this many upcoming changes at most.
   static const maxScheduledRefreshes = 500;
 
   /// Writes every reminder's snapshot and the index, leaves tombstones for
-  /// deleted reminders, schedules widget refreshes at the upcoming due
-  /// times (Android) and redraws the widgets.
+  /// deleted reminders, schedules widget redraws at the upcoming changes
+  /// (Android; iOS timelines have an entry per change) and redraws the
+  /// widgets.
   Future<void> publish({
     required List<Reminder> reminders,
     required Map<String, ReminderRuntime> runtimes,
@@ -79,7 +88,10 @@ class WidgetBridge {
         engine: engine,
         now: now,
       );
-      refreshes.addAll((snapshot['upcoming']! as List<Object?>).cast<int>());
+      refreshes.addAll([
+        for (final time in widgetChangeTimes(snapshot))
+          time.millisecondsSinceEpoch,
+      ]);
       await _writeJson(WidgetStorageKeys.snapshot(reminder.id), snapshot);
     }
     await HomeWidget.saveWidgetData<String>(
@@ -96,23 +108,34 @@ class WidgetBridge {
     );
 
     if (defaultTargetPlatform == TargetPlatform.android) {
-      final times = refreshes.toList()..sort();
-      await HomeWidget.scheduleWidgetUpdates(
-        [
-          for (final time in times.take(maxScheduledRefreshes))
-            DateTime.fromMillisecondsSinceEpoch(time),
-        ],
-        qualifiedAndroidName: androidProvider,
-      );
+      final times = [
+        for (final time in (refreshes.toList()..sort()).take(
+          maxScheduledRefreshes,
+        ))
+          DateTime.fromMillisecondsSinceEpoch(time),
+      ];
+      // One schedule per provider (home_widget keeps them apart).
+      for (final provider in [androidProvider, androidListProvider]) {
+        await HomeWidget.scheduleWidgetUpdates(
+          times,
+          qualifiedAndroidName: provider,
+        );
+      }
     }
     await updateWidgets();
   }
 
-  /// Redraws all reminder widgets.
-  Future<void> updateWidgets() => HomeWidget.updateWidget(
-    qualifiedAndroidName: androidProvider,
-    iOSName: iosKind,
-  );
+  /// Redraws all widgets (one-reminder and list widgets).
+  Future<void> updateWidgets() async {
+    await HomeWidget.updateWidget(
+      qualifiedAndroidName: androidProvider,
+      iOSName: iosKind,
+    );
+    await HomeWidget.updateWidget(
+      qualifiedAndroidName: androidListProvider,
+      iOSName: iosListKind,
+    );
+  }
 
   Future<List<WidgetIndexEntry>> readIndex() async {
     final raw = await HomeWidget.getWidgetData<String>(WidgetStorageKeys.index);
@@ -157,6 +180,36 @@ class WidgetBridge {
     await HomeWidget.saveWidgetData<String>(
       WidgetStorageKeys.androidWidget(appWidgetId),
       reminderId,
+    );
+    await updateWidgets();
+  }
+
+  /// Android: the reminders list widget [appWidgetId] shows, in order
+  /// (empty when it isn't set up yet).
+  Future<List<String>> readAndroidList(int appWidgetId) async {
+    final raw = await HomeWidget.getWidgetData<String>(
+      WidgetStorageKeys.androidListWidget(appWidgetId),
+    );
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is List<Object?>
+          ? decoded.whereType<String>().toList()
+          : const [];
+    } on FormatException {
+      return const [];
+    }
+  }
+
+  /// Android: makes list widget [appWidgetId] show [reminderIds], in this
+  /// order.
+  Future<void> assignAndroidList(
+    int appWidgetId,
+    List<String> reminderIds,
+  ) async {
+    await HomeWidget.saveWidgetData<String>(
+      WidgetStorageKeys.androidListWidget(appWidgetId),
+      jsonEncode(reminderIds),
     );
     await updateWidgets();
   }

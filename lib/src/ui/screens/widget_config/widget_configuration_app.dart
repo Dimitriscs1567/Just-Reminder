@@ -1,4 +1,3 @@
-import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/services.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:material_ui/material_ui.dart';
@@ -7,29 +6,20 @@ import '../../../services/widget/widget_bridge.dart';
 import '../../../services/widget/widget_snapshot.dart';
 import '../../components/empty_state.dart';
 import '../../components/status_icon.dart';
-import '../../theme/app_theme.dart';
+import 'widget_setup_app.dart';
 
-/// Android: picks the reminder a home screen widget shows. Runs in its own
-/// activity and engine, opened by the launcher when the widget is added (or
-/// by tapping a widget whose reminder is gone).
+/// Android: picks the reminder a one-reminder home screen widget shows.
+/// Runs in its own activity and engine, opened by the launcher when the
+/// widget is added (or by tapping a widget whose reminder is gone).
 class WidgetConfigurationApp extends StatelessWidget {
   const WidgetConfigurationApp({required this.appWidgetId, super.key});
 
   final int appWidgetId;
 
   @override
-  Widget build(BuildContext context) => DynamicColorBuilder(
-    builder: (lightDynamic, darkDynamic) => MaterialApp(
-      title: 'Choose a reminder',
-      debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(
-        lightDynamic?.harmonized() ?? fallbackColorScheme(Brightness.light),
-      ),
-      darkTheme: buildAppTheme(
-        darkDynamic?.harmonized() ?? fallbackColorScheme(Brightness.dark),
-      ),
-      home: WidgetConfigurationScreen(appWidgetId: appWidgetId),
-    ),
+  Widget build(BuildContext context) => WidgetSetupApp(
+    title: 'Choose a reminder',
+    home: WidgetConfigurationScreen(appWidgetId: appWidgetId),
   );
 }
 
@@ -112,8 +102,9 @@ class _WidgetConfigurationScreenState extends State<WidgetConfigurationScreen> {
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
-                    'The widget shows its display name and a thumbs up or '
-                    'down. Tap the thumbs down on the widget to mark it done.',
+                    'The widget shows the reminder’s display name and '
+                    'whether it is due. When it is due, tap the thumbs-up '
+                    'on the widget to mark it done.',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -129,9 +120,7 @@ class _WidgetConfigurationScreenState extends State<WidgetConfigurationScreen> {
                     vertical: 8,
                   ),
                   leading: StatusIcon(
-                    kind: status.isWaiting
-                        ? StatusIconKind.firing
-                        : StatusIconKind.done,
+                    kind: widgetStatusIconKind(status.kind),
                     size: 40,
                   ),
                   title: Text(entry.displayName),

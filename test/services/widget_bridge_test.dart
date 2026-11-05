@@ -100,16 +100,22 @@ void main() {
     );
 
     final a = snapshot('a');
+    expect(a['v'], 2);
     expect(a['state'], 'live');
     expect(a['displayName'], 'Show a');
-    expect(a['pendingAt'], DateTime(2026, 11, 4, 7).millisecondsSinceEpoch);
-    expect(a['missedCount'], 1);
+    expect(a['pending'], {
+      'date': '2026-11-04',
+      'start': DateTime(2026, 11, 4, 7).millisecondsSinceEpoch,
+      'due': DateTime(2026, 11, 4, 7).millisecondsSinceEpoch,
+      'missesAt': DateTime(2026, 11, 4, 9).millisecondsSinceEpoch,
+    });
+    expect(a['missed'], {'date': '2026-11-04', 'count': 1});
     expect(
-      (a['upcoming']! as List<Object?>).first,
+      ((a['occurrences']! as List<Object?>).first! as Map<Object?, Object?>)['due'],
       DateTime(2026, 11, 4, 9).millisecondsSinceEpoch,
     );
     expect(snapshot('b')['state'], 'archived');
-    expect(snapshot('b')['upcoming'], isEmpty);
+    expect(snapshot('b')['occurrences'], isEmpty);
     // A widget still showing the deleted reminder keeps its name.
     expect(snapshot('gone')['state'], 'deleted');
     expect(snapshot('gone')['displayName'], 'Old one');
@@ -118,14 +124,23 @@ void main() {
       [for (final entry in await bridge.readIndex()) (entry.id, entry.archived)],
       [('a', false), ('b', true)],
     );
-    expect(callsTo('updateWidget'), hasLength(1));
+    // Both widgets: the one-reminder widget and the list widget.
     expect(
-      (callsTo('updateWidget').single.arguments as Map<Object?, Object?>)['ios'],
-      WidgetBridge.iosKind,
+      [
+        for (final call in callsTo('updateWidget'))
+          (
+            (call.arguments as Map<Object?, Object?>)['qualifiedAndroidName'],
+            (call.arguments as Map<Object?, Object?>)['ios'],
+          ),
+      ],
+      [
+        (WidgetBridge.androidProvider, WidgetBridge.iosKind),
+        (WidgetBridge.androidListProvider, WidgetBridge.iosListKind),
+      ],
     );
   });
 
-  test('Android redraws when the next times become due, soonest first', () async {
+  test('Android redraws both widgets at the next changes, soonest first', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     await bridge.publish(
       reminders: [reminder('a')],
@@ -134,12 +149,22 @@ void main() {
       now: now,
     );
 
-    final arguments =
-        callsTo('scheduleWidgetUpdates').single.arguments
-            as Map<Object?, Object?>;
-    expect(arguments['qualifiedAndroidName'], WidgetBridge.androidProvider);
-    final times = (arguments['updateTimes']! as List<Object?>).cast<int>();
-    expect(times.first, DateTime(2026, 11, 4, 9).millisecondsSinceEpoch);
+    final schedules = [
+      for (final call in callsTo('scheduleWidgetUpdates'))
+        call.arguments as Map<Object?, Object?>,
+    ];
+    expect([for (final arguments in schedules) arguments['qualifiedAndroidName']], [
+      WidgetBridge.androidProvider,
+      WidgetBridge.androidListProvider,
+    ]);
+    final times = (schedules.first['updateTimes']! as List<Object?>)
+        .cast<int>();
+    expect(schedules.last['updateTimes'], times);
+    // 09:00 becomes due, then the day changes (09:00 is missed tomorrow).
+    expect(times.take(2), [
+      DateTime(2026, 11, 4, 9).millisecondsSinceEpoch,
+      DateTime(2026, 11, 5).millisecondsSinceEpoch,
+    ]);
     expect(times, orderedEquals([...times]..sort()));
   });
 
@@ -152,12 +177,20 @@ void main() {
       now: now,
     );
     expect(callsTo('scheduleWidgetUpdates'), isEmpty);
-    expect(callsTo('updateWidget'), hasLength(1));
+    expect(callsTo('updateWidget'), hasLength(2));
   });
 
   test('a widget is assigned to a reminder and redrawn', () async {
     await bridge.assignAndroidWidget(7, 'a');
     expect(storage[WidgetStorageKeys.androidWidget(7)], 'a');
-    expect(callsTo('updateWidget'), hasLength(1));
+    expect(callsTo('updateWidget'), hasLength(2));
+  });
+
+  test('a list widget keeps its reminders in the order picked', () async {
+    expect(await bridge.readAndroidList(8), isEmpty);
+    await bridge.assignAndroidList(8, ['c', 'a', 'b']);
+    expect(storage[WidgetStorageKeys.androidListWidget(8)], '["c","a","b"]');
+    expect(await bridge.readAndroidList(8), ['c', 'a', 'b']);
+    expect(callsTo('updateWidget'), hasLength(2));
   });
 }

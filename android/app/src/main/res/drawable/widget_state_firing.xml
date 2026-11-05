@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Firing: teal ring with a thumbs-up (tap it for Done).
+     Generated (same geometry as the app's StatusIcon); thumb, check and
+     pause are Material Icons paths (Apache 2.0). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp"
+    android:height="40dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:pathData="M2,24a22,22 0,1 0,44,0a22,22 0,1 0,-44,0"
+        android:strokeColor="@color/widget_due"
+        android:strokeWidth="4" />
+    <group
+        android:scaleX="0.92"
+        android:scaleY="0.92"
+        android:translateX="12.96"
+        android:translateY="12.96">
+        <path
+            android:fillColor="@color/widget_due"
+            android:pathData="M13.12,2.06L7.58,7.6c-0.37,0.37 -0.58,0.88 -0.58,1.41V19c0,1.1 0.9,2 2,2h9c0.8,0 1.52,-0.48 1.84,-1.21l3.26,-7.61C23.94,10.2 22.49,8 20.34,8h-5.65l0.95,-4.58c0.1,-0.5 -0.05,-1.01 -0.41,-1.37c-0.59,-0.58 -1.53,-0.58 -2.11,0.01zM3,21c1.1,0 2,-0.9 2,-2v-8c0,-1.1 -0.9,-2 -2,-2s-2,0.9 -2,2v8c0,1.1 0.9,2 2,2z" />
+    </group>
+</vector>

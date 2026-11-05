@@ -1,13 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Widget colors (light). Red and green match the app's status colors;
-     values-v31 swaps the neutral background for Material You colors. -->
+<!-- Widget colors (light), from the approved mockup: a due reminder is
+     teal (the app's StatusColors), missed and paused are neutral, done is a
+     translucent tile that blends into the wallpaper. values-v31 swaps the
+     neutrals for Material You colors; the teal stays fixed. -->
 <resources>
+    <!-- Neutral tile (missed, paused, labels) and the list widget. -->
     <color name="widget_neutral">#FFF3EDF7</color>
     <color name="widget_on_neutral">#FF1D1B20</color>
-    <color name="widget_clear">#FFDCF5E3</color>
-    <color name="widget_on_clear">#FF00391A</color>
-    <color name="widget_waiting">#FFFFDAD6</color>
-    <color name="widget_on_waiting">#FF5C0B06</color>
-    <color name="widget_positive">#FF1E8E3E</color>
-    <color name="widget_negative">#FFD93025</color>
+    <!-- Secondary text, the list's done check. -->
+    <color name="widget_neutral_variant">#FF5F5E5A</color>
+    <!-- Missed ring and thumb, pause sign. -->
+    <color name="widget_outline">#FF888780</color>
+    <!-- Firing: tile, text on it, ring and thumb. -->
+    <color name="widget_firing">#FFD5F5EE</color>
+    <color name="widget_on_firing">#FF04342C</color>
+    <color name="widget_on_firing_variant">#FF085041</color>
+    <color name="widget_due">#FF0F766E</color>
+    <!-- Done: translucent tile (60 %: the mockup's 35 % made the name hard
+         to read over dark parts of a light-mode wallpaper). -->
+    <color name="widget_done">#99FFFFFF</color>
+    <color name="widget_on_done">#FF1F1F1F</color>
+    <color name="widget_done_icon">#CC2C2C2A</color>
+    <!-- Missed-count bubble. -->
+    <color name="widget_bubble">#FF5F5E5A</color>
+    <color name="widget_on_bubble">#FFFFFFFF</color>
+    <!-- Touch feedback on the state icon. -->
+    <color name="widget_ripple">#33000000</color>
 </resources>

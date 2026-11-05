@@ -8,8 +8,9 @@ times a day, and see at a glance whether something needs you:
 - **missed** — a gray dashed ring: today's latest time passed without Done
 - **done** — a faint check: nothing to do right now
 
-A reminder stays due until you mark it done — in the app, on the home screen
-widget, or with the **Done** button on its notification.
+A reminder stays due until you mark it done — in the app, on a home screen
+widget (one reminder, or a list of several), or with the **Done** button on
+its notification.
 
 > **Status:** feature complete. Android is tested on the emulator (debug and
 > release builds); the iOS code is written but has not been compiled yet —
@@ -111,33 +112,53 @@ While you set up a reminder, a **preview** shows its next times, each once
   finished one-time reminder the editor opens so you can pick a new date) or
   delete it.
 
-### Home screen widget
+### Home screen widgets
 
-- **One widget per reminder**: when you add the widget, you pick which
-  reminder it tracks. Add several widgets to track several reminders.
-- Shows the reminder's display name, a thumbs up (green) or thumbs down
-  (red), and how many times were missed while one is due. _(Its new calm
-  look and a widget with several reminders are coming next.)_
-- _Android:_ **1×1 by default**: the thumb with a small missed-count bubble
-  and the display name below it. Resize it to about 2×2 or larger for a
-  bigger thumb and a **"N missed"** badge.
-- _iOS:_ the small widget size (iOS has no 1×1 home screen widgets), with a
-  **"N missed"** badge.
-- Tap the thumbs down to mark it done right from the home screen; tap
-  anywhere else on the widget to open the reminder (straight to its
-  details, also when the app wasn't running).
-- It turns to due when a time comes, even when the app is closed.
-- If the reminder is archived or deleted, the widget shows an "Archived" or
-  "Deleted" label instead of the thumb; tap it (Android) or long-press → Edit
-  Widget (iOS) to pick another reminder.
+Two widgets, both showing the same three states as the app — **due** (a
+teal tile with a ring and a thumbs-up), **missed** (a gray dashed ring with
+a crossed-out thumbs-up) and **done** (a check on a tile that blends into
+the wallpaper) — with the day's missed count in a gray bubble. They change
+by themselves when a time becomes due, is missed, and at midnight (a new
+day starts clean), also when the app is closed.
 
-**Adding the widget**
+**Reminder** — one reminder per widget; you pick it when you add the
+widget. Add several to track several reminders.
+
+- _Android:_ **1×1 by default**: the state icon, the display name and a
+  small missed-count bubble in the corner. Resize it to about 2×2 or larger
+  for a bigger icon and a **"N missed"** badge.
+- _iOS:_ the small widget size (iOS has no 1×1 home screen widgets).
+
+**Reminders** (list) — several reminders in one widget, in the order you
+pick them: one row per reminder with its state icon, display name and
+status ("Due · 1 missed", "Missed · 2", "Done", "Paused"); the due one is on
+a teal row.
+
+- _Android:_ 4×2 by default and resizable; the list **scrolls** when the
+  rows don't fit. When you add it you tick the reminders in the order you
+  want them and can drag them to reorder; change them later via the
+  widget's reconfigure (pencil) button.
+- _iOS:_ medium and large sizes; as many rows as fit, then "+N more" (iOS
+  widgets can't scroll). Pick the reminders with long-press → **Edit
+  Widget**, in the order you want them.
+
+On both widgets:
+
+- Tap the **teal ring** to mark that reminder done right from the home
+  screen; tap anywhere else on a reminder to open it in the app (straight to
+  its details, also when the app wasn't running).
+- If a reminder is archived or deleted, it shows a neutral "Archived" or
+  "Deleted" label; tap it (Android) or long-press → Edit Widget (iOS) to
+  pick another one.
+
+**Adding a widget**
 
 - _Android:_ long-press the home screen → **Widgets** → **Just Reminder** →
-  drag (or tap → Add) the _Reminder_ widget, then choose the reminder.
+  drag (or tap → Add) the _Reminder_ or _Reminders_ widget, then choose the
+  reminder(s).
 - _iOS (17+):_ long-press the Home Screen → **Edit** → **Add Widget** →
-  **Just Reminder**, then long-press the widget → **Edit Widget** → choose the
-  reminder.
+  **Just Reminder** (small: _Reminder_; medium or large: _Reminders_), then
+  long-press the widget → **Edit Widget** → choose the reminder(s).
 
 ### Screens
 
@@ -224,10 +245,17 @@ flutter test tool/app_icon/generate_app_icon_test.dart
 - Permissions: `POST_NOTIFICATIONS` (asked at runtime), `SCHEDULE_EXACT_ALARM`
   (the user grants _Alarms & reminders_), `RECEIVE_BOOT_COMPLETED` (to
   re-arm notifications and widget refreshes after a reboot).
-- The widget is native (`android/app/src/main/kotlin/.../ReminderWidgetProvider.kt`
-  with RemoteViews layouts in `res/layout`: `reminder_widget_small.xml` for
-  1×1 and other small sizes, `reminder_widget.xml` from about 2×2). Picking
-  its reminder runs a small Flutter screen in `WidgetConfigurationActivity`.
+- The widgets are native (Kotlin in `android/app/src/main/kotlin/…`, with
+  RemoteViews layouts in `res/layout`):
+  - _Reminder_: `ReminderWidgetProvider.kt`, `reminder_widget_small.xml` for
+    1×1 and other small sizes, `reminder_widget.xml` from about 2×2;
+  - _Reminders_ (list): `ReminderListWidgetProvider.kt`,
+    `reminder_list_widget.xml` with one `reminder_list_row.xml` per
+    reminder (built with `androidx.core:core-remoteviews`). Row taps go
+    through `WidgetActionActivity`, which shows nothing.
+  Picking the reminder(s) runs a small Flutter screen in
+  `WidgetConfigurationActivity` / `ListWidgetConfigurationActivity`. The
+  state icons are vector drawables (`res/drawable/widget_state_*.xml`).
 - The notification icon `res/drawable/ic_stat_reminder.xml` is kept in
   release builds by `res/raw/keep.xml`.
 - Flutter's built-in deep linking is turned off
@@ -264,11 +292,13 @@ anything it reports.
    `ReminderWidget.swift` and `ReminderWidgetBundle.swift` (Move to Trash);
    keep `Assets.xcassets` and `Info.plist`. Make sure the repo's files —
    `JustReminderWidget.swift`, `JustReminderWidgetBundle.swift`,
-   `ReminderConfiguration.swift`, `AcknowledgeReminderIntent.swift`,
-   `NotificationCleanup.swift`, `WidgetStore.swift` — belong to the
+   `ReminderListWidget.swift`, `ReminderConfiguration.swift`,
+   `AcknowledgeReminderIntent.swift`, `NotificationCleanup.swift`,
+   `WidgetStore.swift`, `WidgetViews.swift` — belong to the
    **ReminderWidgetExtension** target (Xcode 16 folders pick them up
    automatically; otherwise _Add Files to "Runner"…_ with only that target
-   ticked).
+   ticked). Both widgets (_Reminder_ and _Reminders_) live in this one
+   extension.
 4. Select the **ReminderWidgetExtension** target → _General_ → _Minimum
    Deployments_: **iOS 17.0** (interactive and configurable widgets).
 5. **Version:** in the extension's _Build Settings_ set _Marketing Version_
@@ -299,10 +329,16 @@ anything it reports.
    minute, then **force-quit** the app. When the notification arrives, tap
    **Done**, wait a few seconds and reopen the app: the history must show
    that time as done, and no more notifications for it may come.
-2. Add the widget and pick the reminder (long-press → **Edit Widget**). At
-   its next time it turns red on its own; tapping the thumbs down turns it
-   green, clears the notification and stops the time's repeats.
+2. Add the small widget and pick the reminder (long-press → **Edit
+   Widget**). At its next time it turns teal on its own; tapping the
+   thumbs-up shows the check, clears the notification and stops the time's
+   repeats. Let a time with an end pass without Done: the dashed ring and
+   "1" appear at its end.
 3. Tap the widget elsewhere: the reminder opens in the app.
+4. Add the medium _Reminders_ widget and pick three reminders: the rows
+   follow the order picked, the thumbs-up on a teal row marks that reminder
+   done, the rest of a row opens it. Check the previews in Xcode (light and
+   dark).
 
 The iOS widget needs no Flutter code: it reads the data the app stores in
 the App Group and marks reminders done with an App Intent that runs in the
@@ -322,10 +358,11 @@ widget extension.
   history the next time the app runs, in the order they happened, so the
   history is always correct.
 - After every change the app writes a small **snapshot** per reminder for
-  the widgets (state + the next times) and reschedules the notifications.
-  With the next times the widget can turn to due by itself at the right
-  moment (Android redraws it at those times; iOS gets a timeline entry for
-  each).
+  the widgets (where it stands + its next times, with when each would be
+  missed) and reschedules the notifications. From it a widget works out its
+  state at any moment the same way the app does, so it turns due, missed or
+  done by itself at the right time (Android redraws at those times and at
+  midnight; iOS gets a timeline entry for each).
 
 ## Known limitations
 
@@ -337,9 +374,10 @@ widget extension.
   upcoming times per reminder. The app tops this up whenever it runs; with
   frequent repeats (e.g. every 5 minutes) it lasts only hours, so open the
   app now and then.
-- **The widget doesn't show "missed" yet:** a time missed at its end still
-  shows as due on the widget until the app runs (the widgets get the three
-  states next).
+- **iOS widgets:** they can't be translucent, so "done" uses the plain
+  widget background; the list widget can't scroll ("+N more" when the rows
+  don't fit) and keeps the order in which the reminders were added in Edit
+  Widget.
 - **Time zone changes:** notifications and widget redraws are scheduled as
   exact moments. After moving to another time zone, open the app once and
   they move to the new local times.
@@ -350,8 +388,8 @@ widget extension.
 
 ```text
 lib/
-  main.dart                 app entry point (+ Android widget configuration
-                            entry point)
+  main.dart                 app entry point (+ the Android widget setup
+                            entry points)
   src/
     app.dart                MaterialApp.router + Material You theme
     background/             Done from a widget / notification without the
@@ -372,7 +410,7 @@ lib/
                             widget taps
 test/                       unit and widget tests (core, domain, services, ui)
 tool/app_icon/              the app icon's design and its generator
-android/app/src/main/       widget provider + configuration activity
-                            (Kotlin), widget layouts and resources
+android/app/src/main/       widget providers + setup activities (Kotlin),
+                            widget layouts, icons and colors
 ios/ReminderWidget/         WidgetKit extension sources (Swift)
 ```

@@ -1,85 +1,87 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Compact layout (1×1, the default size): the thumb with a missed-count
-     bubble above the display name, or a short label instead of the thumb
-     when archived / deleted / not set up. The thumb is at most 48dp and
-     shrinks when the widget is short (e.g. in landscape). -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Compact layout (1×1, the default size): the state icon above the
+     display name and the missed count in a bubble in the corner, or a short
+     label instead of the icon when archived / deleted / not set up. The
+     icon is at most 40dp and shrinks when the widget is short (e.g. in
+     landscape). Same view ids as reminder_widget. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/widget_background_neutral"
-    android:clipToOutline="true"
-    android:gravity="center"
-    android:orientation="vertical"
-    android:padding="6dp">
+    android:clipToOutline="true">
 
-    <FrameLayout
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="6dp">
 
         <FrameLayout
-            android:id="@+id/widget_thumb_group"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center">
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
 
             <ImageView
-                android:id="@+id/widget_thumb"
+                android:id="@+id/widget_icon"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_margin="3dp"
+                android:layout_gravity="center"
                 android:adjustViewBounds="true"
-                android:contentDescription="@string/widget_all_clear"
+                android:background="@drawable/widget_ripple_circle"
+                android:contentDescription="@string/widget_state_done"
                 android:scaleType="fitCenter"
-                android:src="@drawable/widget_thumb_up" />
+                android:src="@drawable/widget_state_done" />
 
+            <!-- Regular and muted, so it reads as a status next to the name;
+                 shrinks to fit narrow cells. -->
             <TextView
-                android:id="@+id/widget_badge"
-                android:layout_width="wrap_content"
-                android:layout_height="20dp"
-                android:layout_gravity="top|end"
-                android:background="@drawable/widget_count_background"
+                android:id="@+id/widget_label"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:alpha="0.8"
+                android:autoSizeMaxTextSize="13sp"
+                android:autoSizeMinTextSize="8sp"
+                android:autoSizeTextType="uniform"
                 android:gravity="center"
-                android:includeFontPadding="false"
-                android:minWidth="20dp"
-                android:paddingStart="5dp"
-                android:paddingEnd="5dp"
-                android:textColor="#FFFFFFFF"
-                android:textSize="11sp"
-                android:textStyle="bold"
+                android:maxLines="1"
+                android:text="@string/widget_choose_short"
+                android:textColor="@color/widget_on_neutral"
+                android:textSize="12sp"
                 android:visibility="gone" />
         </FrameLayout>
 
-        <!-- Regular and muted, so it reads as a status next to the bold name;
-             shrinks to fit narrow cells. -->
         <TextView
-            android:id="@+id/widget_label"
+            android:id="@+id/widget_title"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:alpha="0.8"
-            android:autoSizeMaxTextSize="13sp"
-            android:autoSizeMinTextSize="8sp"
-            android:autoSizeTextType="uniform"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
             android:gravity="center"
-            android:maxLines="1"
-            android:text="@string/widget_choose_short"
+            android:hyphenationFrequency="normal"
+            android:maxLines="2"
+            android:text="@string/widget_default_title"
             android:textColor="@color/widget_on_neutral"
-            android:textSize="12sp"
-            android:visibility="gone" />
-    </FrameLayout>
+            android:textSize="12sp" />
+    </LinearLayout>
 
     <TextView
-        android:id="@+id/widget_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:ellipsize="end"
+        android:id="@+id/widget_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="18dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="6dp"
+        android:layout_marginEnd="6dp"
+        android:background="@drawable/widget_count_background"
         android:gravity="center"
-        android:hyphenationFrequency="normal"
-        android:maxLines="2"
-        android:text="@string/widget_default_title"
-        android:textColor="@color/widget_on_neutral"
-        android:textSize="12sp"
-        android:textStyle="bold" />
-</LinearLayout>
+        android:includeFontPadding="false"
+        android:minWidth="18dp"
+        android:paddingStart="5dp"
+        android:paddingEnd="5dp"
+        android:textColor="@color/widget_on_bubble"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+</FrameLayout>

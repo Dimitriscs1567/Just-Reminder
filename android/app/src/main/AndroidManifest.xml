@@ -43,8 +43,8 @@
             </intent-filter>
         </activity>
 
-        <!-- Picks the reminder a home screen widget shows (Flutter entry point
-             widgetConfigurationMain in lib/main.dart). -->
+        <!-- Picks the reminder a one-reminder widget shows (Flutter entry
+             point widgetConfigurationMain in lib/main.dart). -->
         <activity
             android:name=".WidgetConfigurationActivity"
             android:exported="true"
@@ -69,7 +69,41 @@
             </intent-filter>
         </activity>
 
-        <!-- The home screen widget: one reminder, thumbs up or down. -->
+        <!-- Picks the reminders a list widget shows, and their order
+             (Flutter entry point listWidgetConfigurationMain). -->
+        <activity
+            android:name=".ListWidgetConfigurationActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:excludeFromRecents="true"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false"
+              />
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <!-- Runs taps on the list widget's rows (Done, open, choose again);
+             shows nothing. -->
+        <activity
+            android:name=".WidgetActionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay" />
+
+        <!-- Home screen widget: one reminder (due, missed or done). -->
         <receiver
             android:name=".ReminderWidgetProvider"
             android:exported="true"
@@ -82,8 +116,21 @@
                 android:resource="@xml/reminder_widget_info" />
         </receiver>
 
-        <!-- home_widget: a tap on the widget's thumbs down runs Dart in the
-             background to acknowledge. -->
+        <!-- Home screen widget: several reminders in a list. -->
+        <receiver
+            android:name=".ReminderListWidgetProvider"
+            android:exported="true"
+            android:label="@string/list_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/reminder_list_widget_info" />
+        </receiver>
+
+        <!-- home_widget: a tap on a widget's thumbs-up runs Dart in the
+             background to mark the reminder done. -->
         <receiver
             android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
             android:exported="true">
@@ -92,8 +139,8 @@
             </intent-filter>
         </receiver>
 
-        <!-- home_widget: redraws widgets at activation times, also after a
-             reboot or an update. -->
+        <!-- home_widget: redraws the widgets when times become due or are
+             missed and at midnight, also after a reboot or an update. -->
         <receiver
             android:name="es.antonborri.home_widget.HomeWidgetScheduledUpdateReceiver"
             android:exported="false">
@@ -105,7 +152,7 @@
         </receiver>
 
         <!-- flutter_local_notifications: scheduled notifications, reboot
-             handling and the Acknowledge action. -->
+             handling and the Done action. -->
         <receiver
             android:exported="false"
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />

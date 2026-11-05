@@ -19,7 +19,7 @@ final class MarkReminderDone extends AppEvent {
   final String reminderId;
 }
 
-/// The iOS widget of an archived or deleted reminder was tapped.
+/// An iOS widget's archived or deleted reminder was tapped.
 final class ExplainWidgetEditing extends AppEvent {
   const ExplainWidgetEditing();
 }

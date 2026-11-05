@@ -3,8 +3,8 @@
      compact layout to the large one at about 2×2. The configuration
      activity asks which reminder to show when the widget is added; it can
      be changed later (reconfigurable). updatePeriodMillis is only a
-     fallback: the app schedules exact redraws at every upcoming
-     activation. -->
+     fallback: the app schedules redraws at every upcoming change (a time
+     due or missed, midnight). -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:configure="com.example.just_reminder.WidgetConfigurationActivity"
     android:description="@string/widget_description"

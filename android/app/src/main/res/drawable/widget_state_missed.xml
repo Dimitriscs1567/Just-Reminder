@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Missed: gray dashed ring, thumbs-up crossed by a dashed line (cut
+     out of the ring and thumb, so it works on any background).
+     Generated (same geometry as the app's StatusIcon); thumb, check and
+     pause are Material Icons paths (Apache 2.0). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp"
+    android:height="40dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <group>
+        <clip-path android:pathData="M0,0H48V48H0ZM9.6,42.756L42.756,9.6L38.4,5.244L5.244,38.4Z" />
+        <path
+            android:pathData="M24,2A22,22 0,0 1,28.895,2.552M33.545,4.179A22,22 0,0 1,37.717,6.8M41.2,10.283A22,22 0,0 1,43.821,14.455M45.448,19.105A22,22 0,0 1,46,24M45.448,28.895A22,22 0,0 1,43.821,33.545M41.2,37.717A22,22 0,0 1,37.717,41.2M33.545,43.821A22,22 0,0 1,28.895,45.448M24,46A22,22 0,0 1,19.105,45.448M14.455,43.821A22,22 0,0 1,10.283,41.2M6.8,37.717A22,22 0,0 1,4.179,33.545M2.552,28.895A22,22 0,0 1,2,24M2.552,19.105A22,22 0,0 1,4.179,14.455M6.8,10.283A22,22 0,0 1,10.283,6.8M14.455,4.179A22,22 0,0 1,19.105,2.552"
+            android:strokeColor="@color/widget_outline"
+            android:strokeLineCap="round"
+            android:strokeWidth="3.5" />
+        <group
+            android:scaleX="0.88"
+            android:scaleY="0.88"
+            android:translateX="13.44"
+            android:translateY="13.44">
+            <path
+                android:fillColor="@color/widget_outline"
+                android:pathData="M9,21h9c0.83,0 1.54,-0.5 1.84,-1.22l3.02,-7.05c0.09,-0.23 0.14,-0.47 0.14,-0.73v-2c0,-1.1 -0.9,-2 -2,-2h-6.31l0.95,-4.57 0.03,-0.32c0,-0.41 -0.17,-0.79 -0.44,-1.06L14.17,1 7.58,7.59C7.22,7.95 7,8.45 7,9v10c0,1.1 0.9,2 2,2zM9,9l4.34,-4.34L12,10h9v2l-3,7H9V9zM1,9h4v12H1z" />
+        </group>
+    </group>
+    <path
+        android:pathData="M9.6,38.4L13.714,34.286M17.829,30.171L21.943,26.057M26.057,21.943L30.171,17.829M34.286,13.714L38.4,9.6"
+        android:strokeColor="@color/widget_outline"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.8" />
+</vector>
