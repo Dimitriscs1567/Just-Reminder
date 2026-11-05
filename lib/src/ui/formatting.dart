@@ -71,6 +71,24 @@ String formatCompactMoment(
     ? formatter.instant(at)
     : formatMoment(at, now, formatter);
 
+/// For inside a sentence ("next …"): "16:00", "tomorrow 09:00",
+/// "Tue, Nov 10, 09:00".
+String formatInlineMoment(
+  DateTime at,
+  DateTime now,
+  TimeFormatter formatter,
+) {
+  final day = LocalDate.fromDateTime(at);
+  final today = LocalDate.fromDateTime(now);
+  final time = formatter.instant(at);
+  return switch (today.daysUntil(day)) {
+    0 => time,
+    1 => 'tomorrow $time',
+    -1 => 'yesterday $time',
+    _ => '${formatDay(day, today)}, $time',
+  };
+}
+
 /// 1st, 2nd, 3rd, 4th, 11th, 21st, …
 String ordinal(int n) {
   if (n % 100 >= 11 && n % 100 <= 13) return '${n}th';
@@ -130,28 +148,45 @@ String describeRecurrence(Recurrence recurrence, {required LocalDate today}) {
   }
 }
 
-/// "09:00", "09:00–17:00, every 30 min, max 5", "3 random times, 09:00–17:00".
-String describeTiming(Timing timing, TimeFormatter formatter) {
-  switch (timing) {
-    case FixedTiming(:final time):
-      return formatter.time(time);
-    case final RangeTiming range:
-      final span = '${formatter.time(range.start)}–${formatter.time(range.end)}';
-      switch (range.mode) {
-        case RangeMode.interval:
-          final max = range.maxActivations;
-          final every = range.intervalMinutes == 60
-              ? 'every hour'
-              : 'every ${formatInterval(range.intervalMinutes)}';
-          return '$span, $every${max == null ? '' : ', max $max'}';
-        case RangeMode.random:
-          final count = range.maxActivations ?? 1;
-          return '$count random ${count == 1 ? 'time' : 'times'}, $span';
-      }
+/// A time's span: "09:00", or "09:00 – 12:00" when it has an end.
+String formatTimeSpan(ReminderTime time, TimeFormatter formatter) {
+  final end = time.end;
+  return end == null
+      ? formatter.time(time.start)
+      : '${formatter.time(time.start)} – ${formatter.time(end)}';
+}
+
+/// The same for one day's occurrence of a time: "09:00 – 12:00".
+String formatOccurrenceSpan(
+  DateTime start,
+  DateTime? end,
+  TimeFormatter formatter,
+) => end == null
+    ? formatter.instant(start)
+    : '${formatter.instant(start)} – ${formatter.instant(end)}';
+
+/// How a time notifies: "once", "every 30 min", "every hour, max 3",
+/// "3 at random".
+String describeNotify(ReminderTime time) {
+  switch (time.mode) {
+    case NotifyMode.once:
+      return 'once';
+    case NotifyMode.repeat:
+      final every = time.intervalMinutes == 60
+          ? 'every hour'
+          : 'every ${formatInterval(time.intervalMinutes)}';
+      final max = time.maxNotifications;
+      return max == null ? every : '$every, max $max';
+    case NotifyMode.random:
+      return '${time.randomCount} at random';
   }
 }
 
-/// One-line summary: "Every weekday · 09:00–17:00, every 30 min". With
+/// A time with how it notifies: "09:00 – 12:00 · every 30 min".
+String describeTime(ReminderTime time, TimeFormatter formatter) =>
+    '${formatTimeSpan(time, formatter)} · ${describeNotify(time)}';
+
+/// One-line summary: "Every weekday · 09:00, 12:00 – 13:00". With
 /// [includeOnceDate] false a one-time reminder is just "Once · 09:00"
 /// (for places that show the date elsewhere).
 String describeSchedule(
@@ -164,7 +199,10 @@ String describeSchedule(
   final when = recurrence is OnceRecurrence && !includeOnceDate
       ? 'Once'
       : describeRecurrence(recurrence, today: today);
-  return '$when · ${describeTiming(schedule.timing, formatter)}';
+  final times = [
+    for (final time in schedule.orderedTimes) formatTimeSpan(time, formatter),
+  ].join(', ');
+  return '$when · $times';
 }
 
 bool _sameDays(List<int> a, List<int> b) =>

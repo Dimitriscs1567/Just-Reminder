@@ -59,9 +59,9 @@ class Reminder {
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  /// Activations at or before this instant never happen. Set on creation and
+  /// Times due at or before this instant never happen. Set on creation and
   /// moved to "now" whenever the schedule is edited, or the reminder is
-  /// resumed or restored, so no activations are invented for the past.
+  /// resumed or restored, so nothing is invented for the past.
   final DateTime activeSince;
 
   bool get isArchived => archivedAt != null;

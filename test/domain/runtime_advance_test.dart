@@ -1,121 +1,262 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:just_reminder/src/domain/activation.dart';
+import 'package:just_reminder/src/core/local_date.dart';
+import 'package:just_reminder/src/core/local_time.dart';
+import 'package:just_reminder/src/domain/occurrence_record.dart';
+import 'package:just_reminder/src/domain/reminder.dart';
 import 'package:just_reminder/src/domain/reminder_runtime.dart';
+import 'package:just_reminder/src/domain/reminder_standing.dart';
 import 'package:just_reminder/src/domain/runtime_advance.dart';
+import 'package:just_reminder/src/domain/schedule.dart';
+import 'package:just_reminder/src/domain/schedule_engine.dart';
 
-final start = DateTime(2026, 11, 4, 8);
-DateTime at(int hour, [int minute = 0]) => DateTime(2026, 11, 4, hour, minute);
+const engine = ScheduleEngine();
+const nov4 = LocalDate(2026, 11, 4);
+const nov5 = LocalDate(2026, 11, 5);
 
-ReminderRuntime fresh() => ReminderRuntime.initial('r', start);
+DateTime nov(int day, int hour, [int minute = 0]) =>
+    DateTime(2026, 11, day, hour, minute);
+LocalTime t(int hour, [int minute = 0]) => LocalTime(hour, minute);
 
-ActivationRecord record(
-  DateTime scheduledAt,
-  ActivationStatus status, [
-  DateTime? acknowledgedAt,
-]) => ActivationRecord(
+/// A daily reminder created on Nov 4 at 08:00.
+Reminder daily(List<ReminderTime> times) => Reminder(
+  id: 'r',
+  name: 'Water',
+  displayName: 'Water',
+  schedule: Schedule(
+    recurrence: const RepeatRecurrence(unit: RepeatUnit.day, startDate: nov4),
+    times: times,
+  ),
+  createdAt: nov(4, 8),
+  updatedAt: nov(4, 8),
+  activeSince: nov(4, 8),
+);
+
+/// 09:00 (once, until the next time) and 12:00–13:00 (every 30 min).
+final nineAndNoon = daily([
+  ReminderTime(start: t(9)),
+  ReminderTime(
+    start: t(12),
+    end: t(13),
+    mode: NotifyMode.repeat,
+    intervalMinutes: 30,
+  ),
+]);
+
+RuntimeAdvance advance(
+  Reminder reminder,
+  DateTime now, {
+  ReminderRuntime? from,
+  List<DateTime> done = const [],
+}) => advanceReminder(
+  reminder: reminder,
+  runtime: from ?? ReminderRuntime.initial(reminder.id, reminder.activeSince),
+  engine: engine,
+  now: now,
+  acknowledgments: done,
+);
+
+OccurrenceRecord record(
+  DateTime start,
+  OccurrenceStatus status, {
+  DateTime? end,
+  DateTime? dueAt,
+  DateTime? doneAt,
+}) => OccurrenceRecord(
   reminderId: 'r',
-  scheduledAt: scheduledAt,
+  start: start,
+  end: end,
+  dueAt: dueAt ?? start,
   status: status,
-  acknowledgedAt: acknowledgedAt,
+  doneAt: doneAt,
 );
 
 void main() {
-  test('an activation becomes the waiting one', () {
-    final result = advanceRuntime(
-      runtime: fresh(),
-      activations: [at(9)],
-      acknowledgments: const [],
-      until: at(9, 5),
-    );
-    expect(result.runtime.pendingAt, at(9));
-    expect(result.runtime.isActive, isTrue);
-    expect(result.runtime.processedUntil, at(9, 5));
-    expect(result.records, [record(at(9), ActivationStatus.pending)]);
+  test('a time becomes due at its first notification', () {
+    final result = advance(nineAndNoon, nov(4, 9, 5));
+    expect(result.runtime.pending?.start, nov(4, 9));
+    expect(result.runtime.processedUntil, nov(4, 9, 5));
+    expect(result.records, [record(nov(4, 9), OccurrenceStatus.pending)]);
   });
 
-  test('a new activation marks the waiting one missed', () {
-    final result = advanceRuntime(
-      runtime: fresh(),
-      activations: [at(9), at(10)],
-      acknowledgments: const [],
-      until: at(10, 5),
-    );
-    expect(result.runtime.pendingAt, at(10));
-    expect(result.runtime.missedCount, 1);
-    expect(
-      result.records,
-      unorderedEquals([
-        record(at(9), ActivationStatus.missed),
-        record(at(10), ActivationStatus.pending),
-      ]),
-    );
-  });
-
-  test('an acknowledgment clears it and resets the missed count', () {
-    final waiting = fresh().copyWith(pendingAt: at(10), missedCount: 2);
-    final result = advanceRuntime(
-      runtime: waiting,
-      activations: const [],
-      acknowledgments: [at(10, 20)],
-      until: at(10, 30),
-    );
-    expect(result.runtime.isActive, isFalse);
-    expect(result.runtime.missedCount, 0);
-    expect(result.runtime.lastAcknowledgedAt, at(10, 20));
-    expect(result.runtime.appliedAckUntil, at(10, 20));
+  test('Done finishes it; the missed count stays', () {
+    final result = advance(nineAndNoon, nov(4, 9, 30), done: [nov(4, 9, 20)]);
+    expect(result.runtime.isFiring, isFalse);
+    expect(result.runtime.last?.status, OccurrenceStatus.done);
+    expect(result.runtime.last?.at, nov(4, 9, 20));
+    expect(result.runtime.appliedAckUntil, nov(4, 9, 20));
     expect(result.records, [
-      record(at(10), ActivationStatus.acknowledged, at(10, 20)),
+      record(nov(4, 9), OccurrenceStatus.done, doneAt: nov(4, 9, 20)),
     ]);
   });
 
-  test('events are replayed in time order', () {
-    final result = advanceRuntime(
-      runtime: fresh(),
-      activations: [at(9), at(10), at(11)],
-      acknowledgments: [at(9, 30)],
-      until: at(11, 5),
+  test('without an end it is missed when the next time starts', () {
+    final result = advance(nineAndNoon, nov(4, 12, 10));
+    expect(result.runtime.pending?.start, nov(4, 12));
+    expect(result.runtime.missedOn(nov4), 1);
+    expect(result.records, unorderedEquals([
+      record(nov(4, 9), OccurrenceStatus.missed),
+      record(nov(4, 12), OccurrenceStatus.pending, end: nov(4, 13)),
+    ]));
+  });
+
+  test('with an end it is missed at its end', () {
+    final result = advance(
+      nineAndNoon,
+      nov(4, 13, 30),
+      done: [nov(4, 9, 10)],
     );
+    expect(result.runtime.isFiring, isFalse);
+    expect(result.runtime.missedOn(nov4), 1);
+    expect(result.runtime.last?.isMissed, isTrue);
+    expect(result.runtime.last?.at, nov(4, 13));
     expect(
       result.records,
-      unorderedEquals([
-        record(at(9), ActivationStatus.acknowledged, at(9, 30)),
-        record(at(10), ActivationStatus.missed),
-        record(at(11), ActivationStatus.pending),
-      ]),
+      contains(record(nov(4, 12), OccurrenceStatus.missed, end: nov(4, 13))),
     );
-    expect(result.runtime.missedCount, 1);
   });
 
-  test('an acknowledgment with nothing waiting changes no history', () {
-    final result = advanceRuntime(
-      runtime: fresh(),
-      activations: const [],
-      acknowledgments: [at(9)],
-      until: at(9, 1),
+  test('Done in time beats the end', () {
+    final result = advance(
+      nineAndNoon,
+      nov(4, 14),
+      done: [nov(4, 9, 10), nov(4, 12, 40)],
     );
-    expect(result.records, isEmpty);
-    expect(result.runtime.appliedAckUntil, at(9));
-    expect(result.runtime.lastAcknowledgedAt, isNull);
+    expect(result.runtime.missedOn(nov4), 0);
+    expect(result.runtime.last?.status, OccurrenceStatus.done);
   });
 
-  test('on a tie the activation comes before the acknowledgment', () {
-    final result = advanceRuntime(
-      runtime: fresh(),
-      activations: [at(9)],
-      acknowledgments: [at(9)],
-      until: at(9),
-    );
-    expect(result.records, [
-      record(at(9), ActivationStatus.acknowledged, at(9)),
+  test('Done before anything is due does nothing', () {
+    final result = advance(nineAndNoon, nov(4, 9, 5), done: [nov(4, 8, 30)]);
+    expect(result.runtime.pending?.start, nov(4, 9));
+    expect(result.runtime.appliedAckUntil, nov(4, 8, 30));
+  });
+
+  test('back to back: missed at the shared minute, then the next is due', () {
+    final reminder = daily([
+      ReminderTime(start: t(9), end: t(12)),
+      ReminderTime(start: t(12)),
     ]);
+    final result = advance(reminder, nov(4, 12));
+    expect(result.runtime.pending?.start, nov(4, 12));
+    expect(result.runtime.missedOn(nov4), 1);
   });
 
-  test('closePendingAsMissed records the waiting activation as missed', () {
-    final closed = closePendingAsMissed(fresh().copyWith(pendingAt: at(9)));
-    expect(closed.runtime.isActive, isFalse);
-    expect(closed.runtime.missedCount, 1);
-    expect(closed.records, [record(at(9), ActivationStatus.missed)]);
+  test('a random time is not due before its first notification', () {
+    final reminder = daily([
+      ReminderTime(
+        start: t(9),
+        end: t(17),
+        mode: NotifyMode.random,
+        randomCount: 2,
+      ),
+    ]);
+    final due = engine.upcoming(reminder.id, reminder.schedule, nov(4, 8));
+    final dueAt = due.single.dueAt;
+    expect(
+      advance(reminder, dueAt.subtract(const Duration(minutes: 1)))
+          .runtime
+          .isFiring,
+      isFalse,
+    );
+    final firing = advance(reminder, dueAt).runtime;
+    expect(firing.pending?.start, nov(4, 9));
+    expect(firing.pending?.dueAt, dueAt);
+  });
 
-    expect(closePendingAsMissed(fresh()).records, isEmpty);
+  test('misses count per day; a time past midnight counts for its day', () {
+    // 20:00 stays due overnight and is missed at 09:00 the next day.
+    final reminder = daily([
+      ReminderTime(start: t(9)),
+      ReminderTime(start: t(20)),
+    ]);
+    final result = advance(reminder, nov(5, 9, 30));
+    expect(result.runtime.pending?.start, nov(5, 9));
+    expect(result.runtime.missedDate, nov4);
+    expect(result.runtime.missedOn(nov4), 2);
+    expect(result.runtime.missedOn(nov5), 0);
+
+    final later = advance(reminder, nov(5, 21), from: result.runtime);
+    expect(later.runtime.missedOn(nov5), 1);
+    expect(later.runtime.missedOn(nov4), 0);
+  });
+
+  test('advancing step by step equals advancing at once', () {
+    final once = advance(nineAndNoon, nov(5, 10)).runtime;
+    var stepped = ReminderRuntime.initial('r', nov(4, 8));
+    for (final now in [nov(4, 9), nov(4, 12, 30), nov(4, 13), nov(5, 10)]) {
+      stepped = advance(nineAndNoon, now, from: stepped).runtime;
+    }
+    expect(stepped, once);
+  });
+
+  test('nothing new: only processedUntil moves', () {
+    final first = advance(nineAndNoon, nov(4, 9, 5));
+    final second = advance(nineAndNoon, nov(4, 9, 6), from: first.runtime);
+    expect(second.records, isEmpty);
+    expect(second.runtime.pending, first.runtime.pending);
+  });
+
+  test('closePendingAsMissed records the due time as missed', () {
+    final firing = advance(nineAndNoon, nov(4, 9, 5)).runtime;
+    final closed = closePendingAsMissed(firing, nov(4, 10));
+    expect(closed.runtime.isFiring, isFalse);
+    expect(closed.runtime.missedOn(nov4), 1);
+    expect(closed.records, [record(nov(4, 9), OccurrenceStatus.missed)]);
+    expect(closePendingAsMissed(closed.runtime, nov(4, 11)).records, isEmpty);
+  });
+
+  group('standing', () {
+    test('firing, with the missed times of its day', () {
+      final runtime = advance(nineAndNoon, nov(4, 12, 10)).runtime;
+      final standing = ReminderStanding.at(runtime, nov(4, 12, 10));
+      expect(standing.phase, ReminderPhase.firing);
+      expect(standing.missedCount, 1);
+      expect(standing.pending?.start, nov(4, 12));
+    });
+
+    test('missed when today’s latest time was missed', () {
+      final runtime = advance(
+        nineAndNoon,
+        nov(4, 14),
+        done: [nov(4, 9, 10)],
+      ).runtime;
+      final standing = ReminderStanding.at(runtime, nov(4, 14));
+      expect(standing.phase, ReminderPhase.missed);
+      expect(standing.missedCount, 1);
+      expect(standing.last?.start, nov(4, 12));
+    });
+
+    test('done after Done, still showing the day’s missed count', () {
+      final runtime = advance(
+        nineAndNoon,
+        nov(4, 14),
+        done: [nov(4, 12, 15)],
+      ).runtime;
+      final standing = ReminderStanding.at(runtime, nov(4, 14));
+      expect(standing.phase, ReminderPhase.done);
+      expect(standing.missedCount, 1); // 09:00
+      expect(standing.last?.status, OccurrenceStatus.done);
+    });
+
+    test('a new day starts clean', () {
+      final runtime = advance(nineAndNoon, nov(4, 14)).runtime;
+      final standing = ReminderStanding.at(runtime, nov(5, 7));
+      expect(standing.phase, ReminderPhase.done);
+      expect(standing.missedCount, 0);
+      expect(standing.last, isNull);
+    });
+
+    test('a time still due past midnight keeps firing with its day’s count',
+        () {
+      final reminder = daily([
+        ReminderTime(start: t(9)),
+        ReminderTime(start: t(20)),
+      ]);
+      final runtime = advance(reminder, nov(5, 1)).runtime;
+      final standing = ReminderStanding.at(runtime, nov(5, 1));
+      expect(standing.phase, ReminderPhase.firing);
+      expect(standing.pending?.date, nov4);
+      expect(standing.missedCount, 1);
+    });
   });
 }

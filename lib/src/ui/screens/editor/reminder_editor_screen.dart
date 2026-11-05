@@ -11,9 +11,9 @@ import '../../../domain/schedule.dart';
 import '../../../domain/validation.dart';
 import '../../../state/now.dart';
 import '../../../state/providers.dart';
-import '../../components/activation_times.dart';
 import '../../components/empty_state.dart';
 import '../../components/number_stepper.dart';
+import '../../components/occurrence_times.dart';
 import '../../components/picker_field.dart';
 import '../../components/section_card.dart';
 import '../../formatting.dart';
@@ -40,6 +40,10 @@ class _ReminderEditorScreenState extends ConsumerState<ReminderEditorScreen> {
   bool _showErrors = false;
   bool _saving = false;
 
+  /// The key of the time row that is open; a new reminder starts with its
+  /// only time open.
+  int? _openTime;
+
   static const _intervalPresets = [5, 10, 15, 30, 45, 60, 90, 120, 180];
 
   EditorController get _controller =>
@@ -52,6 +56,9 @@ class _ReminderEditorScreenState extends ConsumerState<ReminderEditorScreen> {
     _name = TextEditingController(text: draft.name);
     _displayName = TextEditingController(text: draft.displayName);
     _description = TextEditingController(text: draft.description);
+    if (widget.target.mode == EditorMode.create) {
+      _openTime = draft.times.first.key;
+    }
   }
 
   @override
@@ -131,7 +138,7 @@ class _ReminderEditorScreenState extends ConsumerState<ReminderEditorScreen> {
             const SizedBox(height: 16),
             _whenSection(draft, error),
             const SizedBox(height: 16),
-            _timeSection(draft, error),
+            _timesSection(draft, issues),
             const SizedBox(height: 16),
             _previewSection(draft, now),
           ],
@@ -314,185 +321,61 @@ class _ReminderEditorScreenState extends ConsumerState<ReminderEditorScreen> {
     ],
   );
 
-  Widget _timeSection(EditorDraft draft, _ErrorLookup error) {
-    final formatter = TimeFormatter.of(context);
-    final endsNextDay =
-        draft.rangeEnd.minutesOfDay < draft.rangeStart.minutesOfDay;
-    final isPreset = _intervalPresets.contains(draft.intervalMinutes);
+  Widget _timesSection(EditorDraft draft, List<ValidationIssue> issues) {
+    String? errorOf(int index) {
+      for (final issue in issues) {
+        if (issue.timeIndex == index) return issue.message;
+      }
+      return null;
+    }
+
+    String? listError;
+    for (final issue in issues) {
+      if (issue.field == ReminderField.times) listError ??= issue.message;
+    }
 
     return SectionCard(
       icon: Icons.schedule_rounded,
-      title: 'Time',
+      title: draft.times.length == 1 ? 'Time' : 'Times',
       children: [
-        SegmentedButton<bool>(
-          segments: const [
-            ButtonSegment(
-              value: false,
-              label: Text('Fixed time'),
-              icon: Icon(Icons.alarm_rounded),
-            ),
-            ButtonSegment(
-              value: true,
-              label: Text('Time range'),
-              icon: Icon(Icons.timelapse_rounded),
-            ),
-          ],
-          selected: {draft.useRange},
-          onSelectionChanged: (selection) => _controller.edit(
-            (draft) => draft.copyWith(useRange: selection.first),
-          ),
-        ),
-        const SizedBox(height: 16),
-        if (!draft.useRange)
-          PickerField(
-            label: 'At',
-            value: formatter.time(draft.fixedTime),
-            icon: Icons.alarm_rounded,
-            onTap: () async {
-              final time = await _pickTime(draft.fixedTime);
-              if (time != null) {
-                _controller.edit((draft) => draft.copyWith(fixedTime: time));
-              }
-            },
-          )
-        else ...[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: PickerField(
-                  label: 'From',
-                  value: formatter.time(draft.rangeStart),
-                  icon: Icons.wb_twilight_rounded,
-                  onTap: () async {
-                    final time = await _pickTime(draft.rangeStart);
-                    if (time != null) {
-                      _controller.edit(
-                        (draft) => draft.copyWith(rangeStart: time),
-                      );
-                    }
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: PickerField(
-                  label: 'To',
-                  value: formatter.time(draft.rangeEnd),
-                  icon: Icons.nights_stay_outlined,
-                  helperText: endsNextDay ? 'Next day' : null,
-                  errorText: error(ReminderField.timeRange),
-                  onTap: () async {
-                    final time = await _pickTime(draft.rangeEnd);
-                    if (time != null) {
-                      _controller.edit((draft) => draft.copyWith(rangeEnd: time));
-                    }
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          SegmentedButton<RangeMode>(
-            segments: const [
-              ButtonSegment(
-                value: RangeMode.interval,
-                label: Text('Interval'),
-                icon: Icon(Icons.av_timer_rounded),
-              ),
-              ButtonSegment(
-                value: RangeMode.random,
-                label: Text('Random'),
-                icon: Icon(Icons.shuffle_rounded),
-              ),
-            ],
-            selected: {draft.rangeMode},
-            onSelectionChanged: (selection) => _controller.edit(
-              (draft) => draft.copyWith(rangeMode: selection.first),
+        for (var index = 0; index < draft.times.length; index++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _TimeTile(
+              key: ValueKey(draft.times[index].key),
+              time: draft.times[index],
+              open: _openTime == draft.times[index].key,
+              error: errorOf(index),
+              canRemove: draft.times.length > 1,
+              intervalPresets: _intervalPresets,
+              onToggle: () {
+                final key = draft.times[index].key;
+                setState(() => _openTime = _openTime == key ? null : key);
+              },
+              onChanged: (change) =>
+                  _controller.editTime(draft.times[index].key, change),
+              onRemove: () {
+                final key = draft.times[index].key;
+                _controller.removeTime(key);
+                if (_openTime == key) setState(() => _openTime = null);
+              },
+              pickTime: _pickTime,
+              pickInterval: _pickCustomInterval,
             ),
           ),
-          const SizedBox(height: 16),
-          if (draft.rangeMode == RangeMode.interval) ...[
-            Text(
-              'Every',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+        if (draft.times.length < ReminderLimits.maxTimes)
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              onPressed: () {
+                final key = _controller.addTime();
+                setState(() => _openTime = key);
+              },
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Add time'),
             ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final minutes in _intervalPresets)
-                  ChoiceChip(
-                    label: Text(formatInterval(minutes)),
-                    selected: draft.intervalMinutes == minutes,
-                    onSelected: (_) => _controller.edit(
-                      (draft) => draft.copyWith(intervalMinutes: minutes),
-                    ),
-                  ),
-                ChoiceChip(
-                  label: Text(
-                    isPreset
-                        ? 'Custom…'
-                        : 'Custom: ${formatInterval(draft.intervalMinutes)}',
-                  ),
-                  selected: !isPreset,
-                  onSelected: (_) => _pickCustomInterval(draft.intervalMinutes),
-                ),
-              ],
-            ),
-            _ErrorText(error(ReminderField.interval)),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Limit activations'),
-              subtitle: Text(
-                draft.limitActivations
-                    ? 'At most ${draft.maxActivations} per day'
-                    : 'Until the range ends',
-              ),
-              value: draft.limitActivations,
-              onChanged: (on) => _controller.edit(
-                (draft) => draft.copyWith(limitActivations: on),
-              ),
-            ),
-            if (draft.limitActivations)
-              _LabeledStepper(
-                before: 'At most',
-                after: 'per day',
-                value: draft.maxActivations,
-                min: 1,
-                max: ReminderLimits.maxActivationsPerWindow,
-                semanticLabel: 'Maximum activations per day',
-                onChanged: (value) => _controller.edit(
-                  (draft) => draft.copyWith(maxActivations: value),
-                ),
-              ),
-          ] else ...[
-            _LabeledStepper(
-              before: 'Times',
-              after: 'per day',
-              value: math.min(draft.randomCount, draft.maxRandomCount),
-              min: 1,
-              max: draft.maxRandomCount,
-              semanticLabel: 'Random activations per day',
-              onChanged: (value) => _controller.edit(
-                (draft) => draft.copyWith(randomCount: value),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'The range is split into equal parts with one random time in '
-              'each, so they never bunch up.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-          _ErrorText(error(ReminderField.activations)),
-        ],
+          ),
+        _ErrorText(listError),
       ],
     );
   }
@@ -504,7 +387,7 @@ class _ReminderEditorScreenState extends ConsumerState<ReminderEditorScreen> {
 
     return SectionCard(
       icon: Icons.visibility_outlined,
-      title: 'Next activations',
+      title: 'Next reminders',
       children: [
         if (preview.isEmpty)
           Row(
@@ -513,7 +396,7 @@ class _ReminderEditorScreenState extends ConsumerState<ReminderEditorScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'This schedule has no upcoming activations.',
+                  'This schedule has no upcoming reminders.',
                   style: theme.textTheme.bodyLarge?.copyWith(
                     color: scheme.error,
                   ),
@@ -522,11 +405,11 @@ class _ReminderEditorScreenState extends ConsumerState<ReminderEditorScreen> {
             ],
           )
         else
-          ActivationTimes(times: preview, now: now),
-        if (draft.useRange && draft.rangeMode == RangeMode.random) ...[
+          OccurrenceTimes(occurrences: preview, now: now),
+        if (draft.times.any((time) => time.time.mode == NotifyMode.random)) ...[
           const SizedBox(height: 8),
           Text(
-            'Random times are picked once per day and then stay put.',
+            'Random notifications are picked once per day and then stay put.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: scheme.onSurfaceVariant,
             ),
@@ -557,7 +440,7 @@ class _ReminderEditorScreenState extends ConsumerState<ReminderEditorScreen> {
     final now = ref.read(clockProvider)();
     if (mustActivate && controller.preview(now, count: 1).isEmpty) {
       setState(() => _showErrors = true);
-      tell('This schedule never activates. Pick a later date or time.');
+      tell('This schedule never reminds you. Pick a later date or time.');
       return;
     }
 
@@ -631,15 +514,10 @@ class _ReminderEditorScreenState extends ConsumerState<ReminderEditorScreen> {
     return picked == null ? null : LocalTime(picked.hour, picked.minute);
   }
 
-  Future<void> _pickCustomInterval(int current) async {
-    final minutes = await showDialog<int>(
-      context: context,
-      builder: (context) => _CustomIntervalDialog(initialMinutes: current),
-    );
-    if (minutes != null) {
-      _controller.edit((draft) => draft.copyWith(intervalMinutes: minutes));
-    }
-  }
+  Future<int?> _pickCustomInterval(int current) => showDialog<int>(
+    context: context,
+    builder: (context) => _CustomIntervalDialog(initialMinutes: current),
+  );
 
   static String _unitWord(RepeatUnit unit, int every) {
     final word = switch (unit) {
@@ -677,6 +555,316 @@ class _RestoreHint extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// One time of the reminder: a summary row that opens its settings in place
+/// (start, optional end, how it notifies).
+class _TimeTile extends StatelessWidget {
+  const _TimeTile({
+    required this.time,
+    required this.open,
+    required this.error,
+    required this.canRemove,
+    required this.intervalPresets,
+    required this.onToggle,
+    required this.onChanged,
+    required this.onRemove,
+    required this.pickTime,
+    required this.pickInterval,
+    super.key,
+  });
+
+  final TimeDraft time;
+  final bool open;
+  final String? error;
+  final bool canRemove;
+  final List<int> intervalPresets;
+  final VoidCallback onToggle;
+  final void Function(TimeDraft Function(TimeDraft time) change) onChanged;
+  final VoidCallback onRemove;
+  final Future<LocalTime?> Function(LocalTime initial) pickTime;
+  final Future<int?> Function(int current) pickInterval;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final formatter = TimeFormatter.of(context);
+    final value = time.time;
+    final error = this.error;
+    final borderColor = error != null
+        ? scheme.error
+        : open
+        ? scheme.primary
+        : scheme.outlineVariant;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: borderColor,
+          width: open || error != null ? 1.5 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            onTap: onToggle,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: formatTimeSpan(value, formatter),
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                          TextSpan(
+                            text: '   ${describeNotify(value)}',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    open
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (!open && error != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: _ErrorText(error, top: 0),
+            ),
+          if (open)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: _settings(context, value, formatter),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _settings(
+    BuildContext context,
+    ReminderTime value,
+    TimeFormatter formatter,
+  ) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final hint = theme.textTheme.bodySmall?.copyWith(
+      color: scheme.onSurfaceVariant,
+    );
+    final isPreset = intervalPresets.contains(time.intervalMinutes);
+    final mode = value.mode;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: PickerField(
+                label: 'Start',
+                value: formatter.time(time.start),
+                icon: Icons.alarm_rounded,
+                onTap: () async {
+                  final picked = await pickTime(time.start);
+                  if (picked != null) {
+                    onChanged((time) => time.copyWith(start: picked));
+                  }
+                },
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: PickerField(
+                label: 'End',
+                value: time.hasEnd
+                    ? formatter.time(time.endOrDefault)
+                    : 'None',
+                icon: Icons.flag_outlined,
+                helperText: time.hasEnd && value.endsNextDay
+                    ? 'Next day'
+                    : null,
+                onTap: () async {
+                  final picked = await pickTime(time.endOrDefault);
+                  if (picked != null) {
+                    onChanged(
+                      (time) => time.copyWith(hasEnd: true, end: picked),
+                    );
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                time.hasEnd
+                    ? 'Missed at the end if it isn’t done.'
+                    : 'Due until done; missed when the next time starts.',
+                style: hint,
+              ),
+            ),
+            if (time.hasEnd)
+              TextButton(
+                onPressed: () => onChanged(
+                  (time) => time.copyWith(
+                    hasEnd: false,
+                    mode: time.mode == NotifyMode.random
+                        ? NotifyMode.once
+                        : null,
+                  ),
+                ),
+                child: const Text('No end'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SegmentedButton<NotifyMode>(
+          showSelectedIcon: false,
+          segments: [
+            const ButtonSegment(value: NotifyMode.once, label: Text('Once')),
+            const ButtonSegment(
+              value: NotifyMode.repeat,
+              label: Text('Repeat'),
+            ),
+            ButtonSegment(
+              value: NotifyMode.random,
+              label: const Text('Random'),
+              enabled: time.hasEnd,
+            ),
+          ],
+          selected: {mode},
+          onSelectionChanged: (selection) =>
+              onChanged((time) => time.copyWith(mode: selection.first)),
+        ),
+        const SizedBox(height: 6),
+        Text(switch (mode) {
+          NotifyMode.once => time.hasEnd
+              ? 'One notification at the start.'
+              : 'One notification at the start. Add an end time for random '
+                    'notifications.',
+          NotifyMode.repeat => 'Notifies again until it’s done.',
+          NotifyMode.random =>
+            'Start to end is split into equal parts with one random '
+                'notification in each; it’s due from the first.',
+        }, style: hint),
+        if (mode == NotifyMode.repeat) ...[
+          const SizedBox(height: 12),
+          Text(
+            'Every',
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final minutes in intervalPresets)
+                ChoiceChip(
+                  label: Text(formatInterval(minutes)),
+                  selected: time.intervalMinutes == minutes,
+                  onSelected: (_) => onChanged(
+                    (time) => time.copyWith(intervalMinutes: minutes),
+                  ),
+                ),
+              ChoiceChip(
+                label: Text(
+                  isPreset
+                      ? 'Custom…'
+                      : 'Custom: ${formatInterval(time.intervalMinutes)}',
+                ),
+                selected: !isPreset,
+                onSelected: (_) async {
+                  final minutes = await pickInterval(time.intervalMinutes);
+                  if (minutes != null) {
+                    onChanged(
+                      (time) => time.copyWith(intervalMinutes: minutes),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Limit notifications'),
+            subtitle: Text(
+              time.limitNotifications
+                  ? 'At most ${time.maxNotifications}'
+                  : 'Until it’s done',
+            ),
+            value: time.limitNotifications,
+            onChanged: (on) =>
+                onChanged((time) => time.copyWith(limitNotifications: on)),
+          ),
+          if (time.limitNotifications)
+            _LabeledStepper(
+              before: 'At most',
+              after: 'notifications',
+              value: time.maxNotifications,
+              min: 1,
+              max: ReminderLimits.maxNotifications,
+              semanticLabel: 'Maximum notifications',
+              onChanged: (count) =>
+                  onChanged((time) => time.copyWith(maxNotifications: count)),
+            ),
+        ],
+        if (mode == NotifyMode.random) ...[
+          const SizedBox(height: 12),
+          _LabeledStepper(
+            before: 'Notify',
+            after: 'times',
+            value: math.min(time.randomCount, time.maxRandomCount),
+            min: 1,
+            max: time.maxRandomCount,
+            semanticLabel: 'Random notifications',
+            onChanged: (count) =>
+                onChanged((time) => time.copyWith(randomCount: count)),
+          ),
+        ],
+        _ErrorText(error),
+        if (canRemove)
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              onPressed: onRemove,
+              icon: const Icon(Icons.delete_outline_rounded),
+              label: const Text('Remove this time'),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -722,9 +910,10 @@ class _LabeledStepper extends StatelessWidget {
 }
 
 class _ErrorText extends StatelessWidget {
-  const _ErrorText(this.message);
+  const _ErrorText(this.message, {this.top = 8});
 
   final String? message;
+  final double top;
 
   @override
   Widget build(BuildContext context) {
@@ -732,7 +921,7 @@ class _ErrorText extends StatelessWidget {
     if (message == null) return const SizedBox.shrink();
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: EdgeInsets.only(top: top),
       child: Text(
         message,
         style: theme.textTheme.bodySmall?.copyWith(
@@ -919,7 +1108,7 @@ class _CustomIntervalDialogState extends State<_CustomIntervalDialog> {
         keyboardType: TextInputType.number,
         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
         decoration: InputDecoration(
-          labelText: 'Minutes between activations',
+          labelText: 'Minutes between notifications',
           errorText: _error,
         ),
         onSubmitted: (_) => _submit(),

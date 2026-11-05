@@ -6,7 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../../services/widget/widget_bridge.dart';
 import '../../../services/widget/widget_snapshot.dart';
 import '../../components/empty_state.dart';
-import '../../components/status_thumb.dart';
+import '../../components/status_icon.dart';
 import '../../theme/app_theme.dart';
 
 /// Android: picks the reminder a home screen widget shows. Runs in its own
@@ -113,7 +113,7 @@ class _WidgetConfigurationScreenState extends State<WidgetConfigurationScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
                     'The widget shows its display name and a thumbs up or '
-                    'down. Tap the thumbs down on the widget to acknowledge.',
+                    'down. Tap the thumbs down on the widget to mark it done.',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -128,7 +128,12 @@ class _WidgetConfigurationScreenState extends State<WidgetConfigurationScreen> {
                     horizontal: 16,
                     vertical: 8,
                   ),
-                  leading: StatusThumb(waiting: status.isWaiting, size: 40),
+                  leading: StatusIcon(
+                    kind: status.isWaiting
+                        ? StatusIconKind.firing
+                        : StatusIconKind.done,
+                    size: 40,
+                  ),
                   title: Text(entry.displayName),
                   subtitle: Text(entry.name),
                   trailing: const Icon(Icons.chevron_right_rounded),

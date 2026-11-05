@@ -3,16 +3,17 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../core/local_date.dart';
-import '../../../domain/activation.dart';
+import '../../../domain/occurrence.dart';
+import '../../../domain/occurrence_record.dart';
 import '../../../domain/schedule.dart';
 import '../../../state/now.dart';
 import '../../../state/providers.dart';
 import '../../../state/reminder_views.dart';
-import '../../components/activation_times.dart';
 import '../../components/empty_state.dart';
+import '../../components/occurrence_times.dart';
 import '../../components/reminder_card.dart';
 import '../../components/section_card.dart';
-import '../../components/status_thumb.dart';
+import '../../components/status_icon.dart';
 import '../../formatting.dart';
 import '../../reminder_actions.dart';
 import '../../theme/app_theme.dart';
@@ -160,14 +161,14 @@ class _Header extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final description = view.reminder.description;
-    final muted =
-        !view.isWaiting && view.status != ReminderStatus.scheduled;
 
     return Column(
       children: [
-        Hero(
-          tag: 'thumb-${view.id}',
-          child: StatusThumb(waiting: view.isWaiting, muted: muted, size: 96),
+        StatusIcon(
+          kind: StatusIconKind.of(view.status),
+          size: 96,
+          surface: scheme.surface,
+          heroTag: statusHeroTag(view.id),
         ),
         const SizedBox(height: 20),
         Text(
@@ -289,43 +290,61 @@ class _StatusPanel extends ConsumerWidget {
       ),
     );
 
+    final next = view.next;
+    final nextLine = next == null
+        ? null
+        : 'Next: ${formatMoment(next.start, now, formatter)}';
+    final missedBadge = view.missedCount > 0
+        ? MissedBadge(count: view.missedCount, onDue: view.isFiring)
+        : null;
+    final last = view.lastToday;
+
     switch (view.status) {
-      case ReminderStatus.waiting:
+      case ReminderStatus.firing:
         return panel(
-          background: status.negativeContainer,
-          foreground: status.onNegativeContainer,
-          icon: Icons.notifications_active_rounded,
+          background: status.dueContainer,
+          foreground: status.onDueContainer,
+          icon: Icons.notifications_active_outlined,
           title:
-              'Waiting since '
-              '${formatCompactMoment(view.runtime.pendingAt!, now, formatter)}',
+              'Due since '
+              '${formatCompactMoment(view.due!.dueAt, now, formatter)}',
           subtitle: view.reminder.paused
-              ? 'Paused — no new activations until you resume it.'
+              ? 'Paused — no new reminders until you resume it.'
               : null,
-          trailing: view.missedCount > 0
-              ? MissedBadge(count: view.missedCount)
-              : null,
+          trailing: missedBadge,
           actions: [
             FilledButton.icon(
               style: FilledButton.styleFrom(
-                backgroundColor: status.negative,
-                foregroundColor: status.onNegative,
+                backgroundColor: status.due,
+                foregroundColor: status.onDue,
                 minimumSize: const Size.fromHeight(56),
                 textStyle: theme.textTheme.titleMedium,
               ),
-              onPressed: () => acknowledgeReminder(context, ref, view),
+              onPressed: () => markReminderDone(context, ref, view),
               icon: const Icon(Icons.check_rounded),
-              label: const Text('Acknowledge'),
+              label: const Text('Done'),
             ),
           ],
         );
-      case ReminderStatus.scheduled:
+      case ReminderStatus.missed:
         return panel(
-          background: status.positiveContainer,
-          foreground: status.onPositiveContainer,
-          icon: Icons.check_circle_rounded,
-          title: 'All clear',
-          subtitle:
-              'Next: ${formatMoment(view.nextActivation!, now, formatter)}',
+          background: scheme.surfaceContainerHigh,
+          foreground: scheme.onSurface,
+          icon: Icons.schedule_rounded,
+          title: 'Missed ${formatter.instant(last!.start)}',
+          subtitle: nextLine,
+          trailing: missedBadge,
+        );
+      case ReminderStatus.done:
+        return panel(
+          background: scheme.surfaceContainerHigh,
+          foreground: scheme.onSurface,
+          icon: Icons.check_circle_outline_rounded,
+          title: last != null && last.status == OccurrenceStatus.done
+              ? 'Done at ${formatter.instant(last.at)}'
+              : 'Nothing due',
+          subtitle: nextLine,
+          trailing: missedBadge,
         );
       case ReminderStatus.paused:
         return panel(
@@ -333,7 +352,7 @@ class _StatusPanel extends ConsumerWidget {
           foreground: scheme.onSurface,
           icon: Icons.pause_circle_rounded,
           title: 'Paused',
-          subtitle: 'It won’t activate until you resume it.',
+          subtitle: 'It won’t remind you until you resume it.',
           actions: [
             FilledButton.tonalIcon(
               onPressed: () =>
@@ -348,7 +367,7 @@ class _StatusPanel extends ConsumerWidget {
           background: scheme.surfaceContainerHigh,
           foreground: scheme.onSurface,
           icon: Icons.event_busy_rounded,
-          title: 'No more activations',
+          title: 'No more reminders',
           subtitle: 'It moves to the archive automatically.',
         );
       case ReminderStatus.archived:
@@ -358,7 +377,7 @@ class _StatusPanel extends ConsumerWidget {
           icon: Icons.inventory_2_rounded,
           title:
               'Archived · ${formatDay(LocalDate.fromDateTime(view.reminder.archivedAt!), today)}',
-          subtitle: 'Archived reminders never activate.',
+          subtitle: 'Archived reminders never remind you.',
           actions: [
             Row(
               children: [
@@ -421,8 +440,11 @@ class _ScheduleCard extends ConsumerWidget {
         ),
         _InfoRow(
           icon: Icons.schedule_rounded,
-          label: 'Time',
-          value: describeTiming(schedule.timing, formatter),
+          label: schedule.times.length == 1 ? 'Time' : 'Times',
+          value: [
+            for (final time in schedule.orderedTimes)
+              describeTime(time, formatter),
+          ].join('\n'),
         ),
         if (repeat != null) ...[
           _InfoRow(
@@ -445,7 +467,7 @@ class _ScheduleCard extends ConsumerWidget {
             contentPadding: EdgeInsets.zero,
             secondary: const Icon(Icons.pause_circle_outline_rounded),
             title: const Text('Pause reminder'),
-            subtitle: const Text('No activations while paused'),
+            subtitle: const Text('No reminders while paused'),
             value: view.reminder.paused,
             onChanged: (paused) =>
                 setReminderPaused(context, ref, view, paused: paused),
@@ -497,14 +519,14 @@ class _InfoRow extends StatelessWidget {
 class _UpcomingCard extends StatelessWidget {
   const _UpcomingCard({required this.upcoming, required this.now});
 
-  final List<DateTime> upcoming;
+  final List<Occurrence> upcoming;
   final DateTime now;
 
   @override
   Widget build(BuildContext context) => SectionCard(
     icon: Icons.notifications_none_rounded,
     title: 'Coming up',
-    children: [ActivationTimes(times: upcoming, now: now)],
+    children: [OccurrenceTimes(occurrences: upcoming, now: now)],
   );
 }
 
@@ -530,13 +552,13 @@ class _HistorySectionState extends ConsumerState<_HistorySection> {
     final historyAsync = ref.watch(
       historyProvider((reminderId: widget.reminderId, limit: _limit)),
     );
-    final records = historyAsync.value ?? const <ActivationRecord>[];
+    final records = historyAsync.value ?? const <OccurrenceRecord>[];
     final today = LocalDate.fromDateTime(widget.now);
 
     final tiles = <Widget>[];
     LocalDate? currentDay;
     for (final record in records) {
-      final day = LocalDate.fromDateTime(record.scheduledAt);
+      final day = LocalDate.fromDateTime(record.start);
       if (day != currentDay) {
         currentDay = day;
         tiles.add(
@@ -568,7 +590,7 @@ class _HistorySectionState extends ConsumerState<_HistorySection> {
               child: Text(
                 historyAsync.isLoading
                     ? 'Loading…'
-                    : 'Nothing yet — every activation will be listed here.',
+                    : 'Nothing yet — every reminder will be listed here.',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: scheme.onSurfaceVariant,
                 ),
@@ -601,42 +623,39 @@ class _HistorySectionState extends ConsumerState<_HistorySection> {
 class _HistoryTile extends StatelessWidget {
   const _HistoryTile({required this.record, required this.now});
 
-  final ActivationRecord record;
+  final OccurrenceRecord record;
   final DateTime now;
 
   @override
   Widget build(BuildContext context) {
-    final status = context.statusColors;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final formatter = TimeFormatter.of(context);
-    final acknowledgedAt = record.acknowledgedAt;
+    final doneAt = record.doneAt;
+    final surface = theme.cardTheme.color ?? scheme.surfaceContainerLow;
 
-    final (icon, color, label) = switch (record.status) {
-      ActivationStatus.acknowledged => (
-        Icons.check_circle_rounded,
-        status.positive,
-        acknowledgedAt == null
-            ? 'Acknowledged'
-            : 'Acknowledged ${_when(acknowledgedAt, formatter)}',
+    final (leading, label) = switch (record.status) {
+      OccurrenceStatus.done => (
+        Icon(Icons.check_rounded, color: scheme.outline),
+        doneAt == null ? 'Done' : 'Done ${_when(doneAt, formatter)}',
       ),
-      ActivationStatus.missed => (
-        Icons.cancel_rounded,
-        status.negative,
+      OccurrenceStatus.missed => (
+        StatusIcon(kind: StatusIconKind.missed, size: 26, surface: surface),
         'Missed',
       ),
-      ActivationStatus.pending => (
-        Icons.hourglass_top_rounded,
-        status.negative,
-        'Waiting for acknowledgment',
+      OccurrenceStatus.pending => (
+        StatusIcon(kind: StatusIconKind.firing, size: 26, surface: surface),
+        'Due',
       ),
     };
 
     return ListTile(
       dense: true,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-      leading: Icon(icon, color: color),
+      leading: SizedBox(width: 28, child: Center(child: leading)),
       title: Text(
-        formatter.instant(record.scheduledAt),
-        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+        formatOccurrenceSpan(record.start, record.end, formatter),
+        style: theme.textTheme.titleSmall?.copyWith(
           fontFeatures: const [FontFeature.tabularFigures()],
         ),
       ),
@@ -646,7 +665,7 @@ class _HistoryTile extends StatelessWidget {
 
   String _when(DateTime at, TimeFormatter formatter) {
     final sameDay =
-        LocalDate.fromDateTime(at) == LocalDate.fromDateTime(record.scheduledAt);
+        LocalDate.fromDateTime(at) == LocalDate.fromDateTime(record.start);
     return sameDay
         ? 'at ${formatter.instant(at)}'
         : formatMoment(at, now, formatter);

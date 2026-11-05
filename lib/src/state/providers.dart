@@ -3,7 +3,7 @@ import 'package:sembast/sembast.dart';
 
 import '../core/clock.dart';
 import '../data/reminder_repository.dart';
-import '../domain/activation.dart';
+import '../domain/occurrence_record.dart';
 import '../domain/reminder.dart';
 import '../domain/reminder_runtime.dart';
 import '../domain/schedule_engine.dart';
@@ -103,7 +103,7 @@ final reminderProvider = StreamProvider.autoDispose.family<Reminder?, String>(
 /// A reminder's most recent [HistoryQuery.limit] history entries, newest
 /// first.
 final historyProvider = StreamProvider.autoDispose
-    .family<List<ActivationRecord>, HistoryQuery>(
+    .family<List<OccurrenceRecord>, HistoryQuery>(
       (ref, query) => ref
           .watch(reminderRepositoryProvider)
           .watchHistory(query.reminderId, limit: query.limit),

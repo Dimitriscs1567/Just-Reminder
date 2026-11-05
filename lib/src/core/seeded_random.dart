@@ -1,7 +1,7 @@
 /// Small deterministic pseudo-random generator (mulberry32).
 ///
 /// `dart:math`'s `Random(seed)` does not promise the same sequence across
-/// SDK releases. Random activation times must never move once shown, so the
+/// SDK releases. Random notification times must never move once shown, so the
 /// app uses this generator, whose output depends only on the seed.
 class SeededRandom {
   SeededRandom(int seed) : _state = seed & _mask;

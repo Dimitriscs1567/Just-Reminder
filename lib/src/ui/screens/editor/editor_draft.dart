@@ -23,21 +23,13 @@ class EditorDraft {
     required this.dayOfMonth,
     required this.startDate,
     required this.endDate,
-    required this.useRange,
-    required this.fixedTime,
-    required this.rangeStart,
-    required this.rangeEnd,
-    required this.rangeMode,
-    required this.intervalMinutes,
-    required this.limitActivations,
-    required this.maxActivations,
-    required this.randomCount,
+    required this.times,
   });
 
-  /// Defaults for a new reminder: repeating daily at the next full hour.
+  /// Defaults for a new reminder: repeating daily, once at the next full
+  /// hour.
   factory EditorDraft.forNew({required String id, required DateTime now}) {
     final today = LocalDate.fromDateTime(now);
-    final nextHour = LocalTime((now.hour + 1) % 24, 0);
     return EditorDraft(
       id: id,
       name: '',
@@ -52,15 +44,7 @@ class EditorDraft {
       dayOfMonth: today.day,
       startDate: today,
       endDate: null,
-      useRange: false,
-      fixedTime: nextHour,
-      rangeStart: const LocalTime(9, 0),
-      rangeEnd: const LocalTime(17, 0),
-      rangeMode: RangeMode.interval,
-      intervalMinutes: 60,
-      limitActivations: false,
-      maxActivations: 5,
-      randomCount: 3,
+      times: [TimeDraft(key: 0, start: LocalTime((now.hour + 1) % 24, 0))],
     );
   }
 
@@ -68,11 +52,16 @@ class EditorDraft {
   /// the same defaults as a new reminder.
   factory EditorDraft.fromReminder(Reminder reminder, {required DateTime now}) {
     final base = EditorDraft.forNew(id: reminder.id, now: now);
+    final times = reminder.schedule.orderedTimes;
     var draft = base.copyWith(
       name: reminder.name,
       displayName: reminder.displayName,
       displayNameEdited: true,
       description: reminder.description ?? '',
+      times: [
+        for (var key = 0; key < times.length; key++)
+          TimeDraft.of(times[key], key: key),
+      ],
     );
     switch (reminder.schedule.recurrence) {
       case OnceRecurrence(:final date):
@@ -86,26 +75,6 @@ class EditorDraft {
           dayOfMonth: repeat.dayOfMonth,
           startDate: repeat.startDate,
           endDate: repeat.endDate,
-        );
-    }
-    switch (reminder.schedule.timing) {
-      case FixedTiming(:final time):
-        draft = draft.copyWith(useRange: false, fixedTime: time);
-      case final RangeTiming range:
-        final max = range.maxActivations;
-        draft = draft.copyWith(
-          useRange: true,
-          rangeStart: range.start,
-          rangeEnd: range.end,
-          rangeMode: range.mode,
-          intervalMinutes: range.intervalMinutes,
-          limitActivations: range.mode == RangeMode.interval && max != null,
-          maxActivations: range.mode == RangeMode.interval && max != null
-              ? max
-              : null,
-          randomCount: range.mode == RangeMode.random && max != null
-              ? max
-              : null,
         );
     }
     return draft;
@@ -130,15 +99,8 @@ class EditorDraft {
   final LocalDate startDate;
   final LocalDate? endDate;
 
-  final bool useRange;
-  final LocalTime fixedTime;
-  final LocalTime rangeStart;
-  final LocalTime rangeEnd;
-  final RangeMode rangeMode;
-  final int intervalMinutes;
-  final bool limitActivations;
-  final int maxActivations;
-  final int randomCount;
+  /// The reminder's times, by start.
+  final List<TimeDraft> times;
 
   /// The display name to suggest while the user hasn't typed one.
   static String suggestDisplayName(String name) {
@@ -161,30 +123,8 @@ class EditorDraft {
             dayOfMonth: unit == RepeatUnit.month ? dayOfMonth : 1,
           )
         : OnceRecurrence(onceDate),
-    timing: useRange
-        ? RangeTiming(
-            start: rangeStart,
-            end: rangeEnd,
-            mode: rangeMode,
-            intervalMinutes: intervalMinutes,
-            maxActivations: switch (rangeMode) {
-              RangeMode.interval => limitActivations ? maxActivations : null,
-              RangeMode.random => randomCount,
-            },
-          )
-        : FixedTiming(fixedTime),
+    times: [for (final time in times) time.time],
   );
-
-  /// Minutes in the current time range (0 when start == end).
-  int get rangeMinutes => RangeTiming(
-    start: rangeStart,
-    end: rangeEnd,
-    mode: rangeMode,
-  ).windowMinutes;
-
-  /// The largest random count the current range allows.
-  int get maxRandomCount =>
-      math.max(1, math.min(ReminderLimits.maxActivationsPerWindow, rangeMinutes));
 
   EditorDraft copyWith({
     String? name,
@@ -199,15 +139,7 @@ class EditorDraft {
     int? dayOfMonth,
     LocalDate? startDate,
     Object? endDate = _unset,
-    bool? useRange,
-    LocalTime? fixedTime,
-    LocalTime? rangeStart,
-    LocalTime? rangeEnd,
-    RangeMode? rangeMode,
-    int? intervalMinutes,
-    bool? limitActivations,
-    int? maxActivations,
-    int? randomCount,
+    List<TimeDraft>? times,
   }) => EditorDraft(
     id: id,
     name: name ?? this.name,
@@ -222,15 +154,7 @@ class EditorDraft {
     dayOfMonth: dayOfMonth ?? this.dayOfMonth,
     startDate: startDate ?? this.startDate,
     endDate: identical(endDate, _unset) ? this.endDate : endDate as LocalDate?,
-    useRange: useRange ?? this.useRange,
-    fixedTime: fixedTime ?? this.fixedTime,
-    rangeStart: rangeStart ?? this.rangeStart,
-    rangeEnd: rangeEnd ?? this.rangeEnd,
-    rangeMode: rangeMode ?? this.rangeMode,
-    intervalMinutes: intervalMinutes ?? this.intervalMinutes,
-    limitActivations: limitActivations ?? this.limitActivations,
-    maxActivations: maxActivations ?? this.maxActivations,
-    randomCount: randomCount ?? this.randomCount,
+    times: times ?? this.times,
   );
 
   @override
@@ -250,15 +174,7 @@ class EditorDraft {
       other.dayOfMonth == dayOfMonth &&
       other.startDate == startDate &&
       other.endDate == endDate &&
-      other.useRange == useRange &&
-      other.fixedTime == fixedTime &&
-      other.rangeStart == rangeStart &&
-      other.rangeEnd == rangeEnd &&
-      other.rangeMode == rangeMode &&
-      other.intervalMinutes == intervalMinutes &&
-      other.limitActivations == limitActivations &&
-      other.maxActivations == maxActivations &&
-      other.randomCount == randomCount;
+      _sameTimes(other.times, times);
 
   @override
   int get hashCode => Object.hashAll([
@@ -275,16 +191,132 @@ class EditorDraft {
     dayOfMonth,
     startDate,
     endDate,
-    useRange,
-    fixedTime,
-    rangeStart,
-    rangeEnd,
-    rangeMode,
-    intervalMinutes,
-    limitActivations,
-    maxActivations,
-    randomCount,
+    Object.hashAll(times),
   ]);
+
+  static bool _sameTimes(List<TimeDraft> a, List<TimeDraft> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+}
+
+/// One time in the editor, flat, so switching e.g. between "Repeat" and
+/// "Random" keeps the values of the other choice.
+class TimeDraft {
+  const TimeDraft({
+    required this.key,
+    required this.start,
+    this.hasEnd = false,
+    this.end,
+    this.mode = NotifyMode.once,
+    this.intervalMinutes = 30,
+    this.limitNotifications = false,
+    this.maxNotifications = 5,
+    this.randomCount = 3,
+  });
+
+  factory TimeDraft.of(ReminderTime time, {required int key}) {
+    final max = time.maxNotifications;
+    return TimeDraft(
+      key: key,
+      start: time.start,
+      hasEnd: time.end != null,
+      end: time.end,
+      mode: time.mode,
+      intervalMinutes: time.intervalMinutes,
+      limitNotifications: time.mode == NotifyMode.repeat && max != null,
+      maxNotifications: max ?? 5,
+      randomCount: time.randomCount,
+    );
+  }
+
+  /// Identifies it in the editor while the times re-sort; not saved.
+  final int key;
+
+  final LocalTime start;
+  final bool hasEnd;
+
+  /// The end while [hasEnd] (kept when switched off); defaults to an hour
+  /// after the start.
+  final LocalTime? end;
+
+  final NotifyMode mode;
+  final int intervalMinutes;
+  final bool limitNotifications;
+  final int maxNotifications;
+  final int randomCount;
+
+  /// The end to show and save.
+  LocalTime get endOrDefault =>
+      end ?? LocalTime.fromMinutes((start.minutesOfDay + 60) % 1440);
+
+  /// The time it describes. Random without an end isn't offered, so it
+  /// falls back to a single notification.
+  ReminderTime get time => ReminderTime(
+    start: start,
+    end: hasEnd ? endOrDefault : null,
+    mode: mode == NotifyMode.random && !hasEnd ? NotifyMode.once : mode,
+    intervalMinutes: intervalMinutes,
+    maxNotifications: limitNotifications ? maxNotifications : null,
+    randomCount: randomCount,
+  );
+
+  /// Minutes from start to end (0 when they are equal).
+  int get spanMinutes =>
+      ReminderTime(start: start, end: endOrDefault).spanMinutes ?? 0;
+
+  /// The largest random count start–end allows.
+  int get maxRandomCount =>
+      math.max(1, math.min(ReminderLimits.maxNotifications, spanMinutes));
+
+  TimeDraft copyWith({
+    LocalTime? start,
+    bool? hasEnd,
+    LocalTime? end,
+    NotifyMode? mode,
+    int? intervalMinutes,
+    bool? limitNotifications,
+    int? maxNotifications,
+    int? randomCount,
+  }) => TimeDraft(
+    key: key,
+    start: start ?? this.start,
+    hasEnd: hasEnd ?? this.hasEnd,
+    end: end ?? this.end,
+    mode: mode ?? this.mode,
+    intervalMinutes: intervalMinutes ?? this.intervalMinutes,
+    limitNotifications: limitNotifications ?? this.limitNotifications,
+    maxNotifications: maxNotifications ?? this.maxNotifications,
+    randomCount: randomCount ?? this.randomCount,
+  );
+
+  /// Compares what the user entered; the [key] is ignored.
+  @override
+  bool operator ==(Object other) =>
+      other is TimeDraft &&
+      other.start == start &&
+      other.hasEnd == hasEnd &&
+      other.end == end &&
+      other.mode == mode &&
+      other.intervalMinutes == intervalMinutes &&
+      other.limitNotifications == limitNotifications &&
+      other.maxNotifications == maxNotifications &&
+      other.randomCount == randomCount;
+
+  @override
+  int get hashCode => Object.hash(
+    start,
+    hasEnd,
+    end,
+    mode,
+    intervalMinutes,
+    limitNotifications,
+    maxNotifications,
+    randomCount,
+  );
 }
 
 const Object _unset = Object();

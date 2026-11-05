@@ -94,7 +94,19 @@ More gotchas:
 - Widget tests run on an 800×600 screen: pump after `ensureVisible` before
   tapping; a floating SnackBar covers the bottom (scroll the target up
   first); ListView children scrolled far away aren't built, so scroll back
-  before `find`.
+  before `find` (or `scrollUntilVisible(..., scrollable:
+  find.byType(Scrollable).first)` for something further down, like the
+  editor's "Add time"). Times show in 12-hour format there
+  (`'9:00 AM'`).
+- A `Hero` flight draws the destination's hero child in the navigator's
+  overlay, which has no `Material` — so never put an `InkResponse` /
+  `InkWell` (or anything else that needs a Material ancestor) inside a
+  `Hero`. `StatusIcon(heroTag:)` flies only the drawing; its tap target
+  stays outside (going back from a due reminder showed "No Material widget
+  found" mid-flight). `test/ui/app_test.dart` checks a flight back.
+- Seeding the emulator for a quick end-to-end check: force-stop the app,
+  append a sembast record line (`{"key":…,"store":"reminders","value":{…}}`)
+  with `run-as … sh -c 'cat >> files/just_reminder.db'`, start it again.
 - `dart format` has never been applied (about 30 files would change); don't
   reformat whole files as part of unrelated changes.
 - Flutter's deep linking is **on by default** (no manifest/plist entry
@@ -114,69 +126,8 @@ More gotchas:
 
 ## Product decisions
 
-Agreed with the user on 2026-11-04. These are the spec.
-
-### Revisions agreed on 2026-11-05 (steps 6–8)
-
-These override the older decisions below where they conflict. Steps 7 and
-8 implement them; fold them into the sections below as each step lands.
-
-**Times** (replaces *Schedule — time*: no more "fixed time" vs "time range")
-- A reminder has **one or more times**. Each time has a **start**, an
-  **optional end** (`end < start` → past midnight) and **how often to
-  notify**: *Only once*, *Every X minutes* (with an optional **max number of
-  notifications**, as before) or — only with an end time — *Random*: exactly
-  N notifications, start–end split into N equal parts with one random time
-  in each (deterministic per reminder and date, as before).
-- Each time is **one reminder** (one history entry). It becomes due at its
-  **first notification** (the start; with Random the first random time) and
-  notifications repeat until it is **Done**, which stops its remaining
-  notifications.
-- **Without an end time** it stays due and keeps notifying until Done or
-  until the reminder's **next time starts**, where it is recorded as
-  **missed**. The optional max only limits the notifications; it stays due
-  either way (a one-time reminder's last time stays due until Done).
-- **With an end time** it notifies only within start–end and is recorded as
-  **missed at the end time** if it isn't Done.
-- Times must **not overlap**; **back-to-back is allowed** (a time may start
-  exactly when the previous one ends; the earlier one then sends no
-  notification at that instant). All times together must fit in **one
-  day**: the last end may not run past the first start of the next day.
-- Every list (history, coming up, editor preview, cards) shows each time
-  **once** (as `09:00–17:00` when it has an end), done or not.
-
-**States** (replaces the thumbs-down and missed rules of *Activation and
-acknowledgment*)
-- Three states, the same in the app and on the widgets: **firing** (a time
-  is due), **missed** (the latest time was missed and nothing is firing),
-  **done** (nothing due: everything done, or nothing has happened yet that
-  day).
-- The **missed count** counts only the missed times of the **same day** and
-  shows in all three states (Done no longer resets it). A new day **starts
-  clean** (done, no count) until its first time; a time still firing from
-  the previous evening keeps showing as firing.
-
-**Wording:** the UI never says "activation" — it says **reminder** — and
-**Done** replaces "Acknowledge" (buttons, notification action, history).
-
-**Look** (replaces the green/red thumbs; chosen from mockups)
-- Firing: teal (the app's main color) tint and a ring with a **thumbs-up**
-  inside; tapping it marks Done. Missed: gray **dashed ring** with a
-  thumbs-up crossed by a dashed line. Done: a **faint check**. The missed
-  count is a neutral gray bubble, never red.
-- Home screen widget: done is a **translucent** tile that blends into the
-  wallpaper.
-
-**List widget** (new, Android and iOS): the user picks several reminders in
-its setup and they are shown in the **order picked** (tick order, drag to
-reorder). One row per reminder: state icon, display name, status;
-resizable; on Android it scrolls when they don't fit. An archived or
-deleted reminder keeps its row with a neutral "Archived" / "Deleted" label.
-
-**Bug (step 6):** tapping a widget showed a go_router error page for a
-moment before the reminder opened.
-
-### Original decisions (2026-11-04)
+Agreed with the user on 2026-11-04, revised on 2026-11-05 (times, states,
+wording, look). These are the spec.
 
 **Reminder fields**
 - `name` (required) — shown in the app.
@@ -191,63 +142,102 @@ moment before the reminder opened.
   - Monthly day 29–31 in a shorter month → that month's **last day**.
   - Start date + optional end date (inclusive). *(extra: end date)*
 
-**Schedule — time**
-- Fixed time, or time range `start–end`. `end < start` → the window runs past
-  midnight into the next day. A one-time range stays within its date (plus
-  the past-midnight rule); it never spans several days.
-- Range mode *Interval*: every X minutes from the range start until the range
-  end or until max N is reached (max optional).
-- Range mode *Random*: **exactly N** per window, **spread**: window split into
-  N equal slots, one random time per slot. Must be deterministic per
-  (reminder, window) so times don't move between app launches.
-- Max activations counts **per window** (e.g. per day).
+**Schedule — times** (2026-11-05; replaced "fixed time" vs "time range")
+- A reminder has **one or more times**. Each time has a **start**, an
+  **optional end** (`end < start` → past midnight; a time still belongs to
+  the day it starts on) and **how often to notify**: *Once*, *Repeat* every
+  X minutes (with an optional **max number of notifications**) or — only
+  with an end — *Random*: **exactly N** notifications, start–end split into
+  N equal parts with one random time in each, deterministic per (reminder,
+  date, start) so they don't move between app launches.
+- Each time is **one reminder** (one history entry). It becomes due at its
+  **first notification** (the start; with Random the first random time) and
+  notifications repeat until it is **Done**, which stops its remaining
+  notifications.
+- **Without an end** it stays due and keeps notifying until Done or until
+  the reminder's **next time starts**, where it is recorded as **missed**.
+  The optional max only limits the notifications; it stays due either way
+  (a one-time reminder's last time stays due until Done).
+- **With an end** it notifies only between start and end and is recorded as
+  **missed at the end** if it isn't Done.
+- Times must **not overlap**; **back-to-back is allowed** (a time may start
+  exactly when the previous one ends; the earlier one then sends nothing at
+  that instant). All times together must fit in **one day**: the last end
+  may not run past the first start of the next day.
+- Every list (history, coming up, editor preview) shows each time **once**
+  (as `09:00 – 17:00` when it has an end), done or not.
 
-**Activation and acknowledgment**
-- Activation → notification (title = display name, text = description) with
-  an **Acknowledge** action button; reminder shows thumbs down (negative/red)
-  in app and widget.
-- Stays active until acknowledged via app, widget, or notification button.
-  Swiping the notification away does **not** acknowledge.
-- New activation while still unacknowledged → notify again; the previous one
-  is recorded as **missed** in history; app and widget show the missed count
-  until the new one is acknowledged.
-- History of every activation (acknowledged / missed / active), kept
-  **forever** (user chose this knowing sembast keeps all data in memory).
-- Interval mode **includes the range end** when it lands on a step
-  (09:00–17:00 every 60 min → 9 activations).
+**States** (2026-11-05)
+- Three states, the same in the app and on the widgets: **firing** (a time
+  is due), **missed** (today's latest time was missed and nothing is due),
+  **done** (nothing due: everything done, or nothing has happened yet that
+  day).
+- The **missed count** counts only the missed times of the **same day** and
+  shows in all three states (Done doesn't reset it). A new day **starts
+  clean** (done, no count) until its first time; a time still due from the
+  previous evening keeps showing as firing (with its own day's count).
+- Notifications: title = display name, text = description, a **Done**
+  button, "N missed" (the day's). Swiping a notification away does **not**
+  mark it done.
+- History of every time (done / missed / due), kept **forever** (user chose
+  this knowing sembast keeps all data in memory).
+
+**Wording** (2026-11-05): the UI never says "activation" — it says
+**reminder** — and **Done** replaces "Acknowledge" (buttons, notification
+action, history).
+
+**Look** (chosen 2026-11-05 from mockups; replaced the green/red thumbs)
+- Firing: teal (the app's main color, `#0F766E`) tint and a ring with a
+  **thumbs-up** inside; tapping it marks Done. Missed: gray **dashed ring**
+  with a thumbs-up crossed by a dashed line. Done: a **faint check**. The
+  missed count is a neutral gray bubble, never red.
+- Editor: the times are **rows that open in place** (layout A): a summary
+  per time, tap to open its settings; times sort themselves by start; "Add
+  time" adds one an hour after the last; Random is only offered with an
+  end.
 
 **Lifecycle: edit, pause, archive, delete**
-- Editing or pausing a reminder while it is active keeps the waiting
-  activation **active until acknowledged**; only future activations change.
-  Paused reminders do not activate.
-- Two separate actions: **Archive** (keeps the history, never fires again,
-  moves to the Archive screen) and **Delete** (removes the reminder *and* its
-  history).
-- Archiving a reminder while it is active records the waiting activation as
-  **missed**.
-- A **finished** reminder (one-time reminder after its activations, or a
+- Editing or pausing a reminder while a time is due keeps it **due until
+  Done** (or missed at its end; when it has none, at the new schedule's
+  next time — none comes while paused); only future times change. Paused
+  reminders don't remind.
+- Two separate actions: **Archive** (keeps the history, never reminds again,
+  moves to the Archive screen) and **Delete** (removes the reminder *and*
+  its history).
+- Archiving a reminder while a time is due records it as **missed**.
+- A **finished** reminder (one-time reminder after its times, or a
   repeating one past its end date) is **moved to the archive automatically**
-  once nothing is waiting (i.e. after it is acknowledged). There is no "Done"
-  list.
+  once nothing is due (i.e. after Done, or missed). There is no "Done" list.
 - Archive screen: view history, **Restore** (back to the list; for a finished
   one-time reminder the editor opens so a new date can be picked) and
   **Delete**.
 
 **Extras chosen:** pause/resume, end date for recurring, schedule preview
-(next few activation times in the editor). *Not* chosen: snooze.
+(next few times in the editor). *Not* chosen: snooze.
 
 **Widget:** one widget per reminder (user picks the reminder when adding it).
-Shows display name, thumb (green up / red down) and a "N missed" badge. Tap
-thumbs down to acknowledge. If its reminder is archived or deleted, the widget
-shows the display name with a neutral "Archived" / "Deleted" label instead of
-the thumb, and tapping it lets the user pick another reminder (Android:
-reopens the widget configuration; iOS: long-press → Edit Widget, which the app
-explains). Android widgets are **1×1 by default** and resizable (requested
-2026-11-04); iOS has no 1×1 home screen size, so it stays `systemSmall`.
+Until step 8 it keeps its 2026-11-04 look: display name, thumb (green up /
+red down) and a "N missed" badge; tap the thumbs down to mark it done. If its
+reminder is archived or deleted, the widget shows the display name with a
+neutral "Archived" / "Deleted" label instead of the thumb, and tapping it
+lets the user pick another reminder (Android: reopens the widget
+configuration; iOS: long-press → Edit Widget, which the app explains).
+Android widgets are **1×1 by default** and resizable (requested 2026-11-04);
+iOS has no 1×1 home screen size, so it stays `systemSmall`.
+
+**Pending for step 8 (agreed 2026-11-05):**
+- The widgets show the three states with the new look; done is a
+  **translucent** tile that blends into the wallpaper.
+- **List widget** (new, Android and iOS): the user picks several reminders
+  in its setup and they are shown in the **order picked** (tick order, drag
+  to reorder). One row per reminder: state icon, display name, status;
+  resizable; on Android it scrolls when they don't fit. An archived or
+  deleted reminder keeps its row with a neutral "Archived" / "Deleted"
+  label.
 
 **Theme:** Material You (dynamic color, Android 12+) with indigo `#4F46E5` /
-teal `#14B8A6` fallback; light/dark follow the system; positive green,
-negative red.
+teal `#14B8A6` fallback; light/dark follow the system; a due reminder is
+always teal; missed and done are neutral.
 
 **App icon** (chosen 2026-11-05 from nine concepts): white bell with a green
 (`#1E8E3E`) thumbs-up badge on a teal gradient (`#2DD4BF` → `#0F766E`).
@@ -261,33 +251,52 @@ Reasonable defaults that were reported to the user; ask before changing the
 *behavior* they describe.
 
 - Input limits (`ReminderLimits`): name ≤ 60, display name ≤ 30 (widget
-  space), description ≤ 500 characters; repeat every 1–99; interval 1 min –
-  24 h; interval cap and random count 1–100 (random also ≤ the range's
-  minutes).
-- Start time == end time is invalid (no 24-hour windows).
+  space), description ≤ 500 characters; repeat every 1–99; **up to 24
+  times** per reminder; interval 1 min – 24 h; notification limit and
+  random count 1–100 (random also ≤ the minutes between start and end).
+- A time's start == end is invalid (no 24-hour windows); two times can't
+  start at the same minute.
+- **Repeats stop before the end** (2026-11-05): a time is missed at its end,
+  so a notification at that moment could no longer be done. (Replaces the
+  2026-11-04 rule that interval ranges included their end.)
 - Random times are whole minutes inside `[start, end)`.
+- A time is missed when the next time **starts**, even if that one (Random)
+  becomes due later.
 - Reminders follow the device's local wall clock (they move with time-zone
   changes).
 - Restoring resets the missed count and replays nothing from the archived
   period.
-- A paused reminder whose schedule can no longer activate (e.g. its one-time
+- A paused reminder whose schedule can no longer remind (e.g. its one-time
   date passed while paused) is archived like any finished reminder.
-- UI defaults: a new reminder starts as "repeat daily at the next full
-  hour"; the display name follows the name until the user edits it;
-  interval presets 5 min – 3 h plus "Custom…" (minutes); the editor
-  preview shows 8 activations, details shows 6; history loads 30 at a
-  time.
-- Archive's snackbar offers **Undo** only when nothing was waiting (undo
-  can't un-miss the waiting activation). Delete always asks for
-  confirmation. Closing the editor with changes asks "Discard changes?".
-- Restoring a reminder that could never activate again opens the editor
-  in restore mode (`/reminder/:id/edit?mode=restore`); otherwise it is
+- **Paused reminders send no notifications**, also not for a time that is
+  still due.
+- Data from before 2026-11-05 is read as is: a fixed time becomes a time
+  that notifies once, a range a time with an end (interval → repeat with
+  its max, random → random). A waiting activation stays due as a time
+  without an end; the missed count starts over. History entries keep
+  their time ("acknowledged" reads as done).
+- UI defaults: a new reminder starts as "repeat daily, once at the next
+  full hour" with its time open; the display name follows the name until
+  the user edits it; interval presets 5 min – 3 h plus "Custom…"
+  (minutes); the editor preview shows 8 times, details shows 6; history
+  loads 30 at a time.
+- Home: "Due now" (firing), "Coming up" (missed, done, ended), "Paused";
+  the summary card says "N reminders are due" (teal) or "Nothing due" with
+  the day's missed count and the next time.
+- Archive's snackbar offers **Undo** only when nothing was due (undo can't
+  un-miss the due time). Delete always asks for confirmation. Closing the
+  editor with changes asks "Discard changes?".
+- Restoring a reminder that could never remind again opens the editor in
+  restore mode (`/reminder/:id/edit?mode=restore`); otherwise it is
   restored directly.
-- Notifications: body falls back to "Tap Acknowledge once you’ve done it.";
-  "N missed" as Android subText / iOS subtitle; on Android the previous
+- Notifications: body falls back to "Tap Done once you’ve done it.";
+  "N missed" as Android subText / iOS subtitle (the day's misses, assuming
+  earlier times not done yet will be missed); on Android the previous
   notification of a reminder disappears when its next one arrives; tapping
-  a notification opens the reminder.
-- Widget: tapping the thumb acknowledges only while waiting, anywhere else
+  a notification opens the reminder. The Done action keeps its old id
+  (`acknowledge`) and the widget's URL its old host, so notifications and
+  widgets from older versions keep working.
+- Widget: tapping the thumb marks it done only while due, anywhere else
   opens the reminder. Android compact layout (1×1 and anything smaller than
   120×160 dp): 48 dp thumb (shrinks when short) with the missed count as a
   number bubble ("99+" above 99), display name below (2 lines), short
@@ -308,9 +317,10 @@ lib/
                 button entry points (no database)
     core/       LocalDate, LocalTime, FNV-1a stableHash, SeededRandom
                 (mulberry32), newId, Clock, app constants            pure Dart
-    domain/     Schedule (Recurrence + Timing), Reminder, ActivationRecord,
-                ReminderRuntime, ScheduleEngine, advanceRuntime,
-                validation                                          pure Dart
+    domain/     Schedule (Recurrence + ReminderTime list), Occurrence,
+                Reminder, OccurrenceRecord, ReminderRuntime,
+                ScheduleEngine, advanceRuntime / advanceReminder,
+                ReminderStanding, validation                       pure Dart
     data/       openAppDatabase(), ReminderRepository (sembast)
     services/   ReminderService, AckInbox, WidgetStorageKeys, AppEvents,
                 AppSideEffects, notifications/ (plan, scheduler, service),
@@ -328,44 +338,73 @@ tool/app_icon/  app icon design + generator (writes the Android and iOS
                 icon files; run as a flutter test)
 ```
 
+Naming: the code calls one time of one day an **occurrence** (the UI says
+"reminder"); a due occurrence is **pending** ("firing" in the decisions);
+Done marks are still logged in the "ack" inbox.
+
 ### Domain (`lib/src/domain`, pure Dart — no Flutter imports)
 
 - `Schedule` = `Recurrence` (sealed: `OnceRecurrence(date)` |
   `RepeatRecurrence(unit day/week/month, every, startDate, endDate?,
-  weekdays, dayOfMonth)`) + `Timing` (sealed: `FixedTiming(time)` |
-  `RangeTiming(start, end, mode interval/random, intervalMinutes,
-  maxActivations?)`).
-- `ScheduleEngine` turns a schedule into local `DateTime` instants:
-  `between(id, schedule, from, to)` is `(from, to]`; `upcoming(...)` /
-  `upcomingFor(reminder, ...)` are strictly after; `isFinished(reminder, now)`.
-  Windows that run past midnight are found by scanning from the day before.
-  Random mode seeds `SeededRandom` with `stableHash32('$reminderId|$date')`;
-  never switch to `dart:math` `Random(seed)` (its sequence may change between
-  SDK releases). `test/core/hash_and_random_test.dart` pins the output —
-  it was cross-checked against the reference JavaScript mulberry32/FNV-1a.
-- `advanceRuntime` is the state machine: replays new activations and
-  acknowledgments in time order (activation first on ties). An activation
-  while another is pending marks that one **missed** (`missedCount++`); an
-  acknowledgment acknowledges the pending one and resets `missedCount`.
-  `closePendingAsMissed` is used by archive.
-- `ReminderRuntime` (pending activation, missed count, last ack,
-  `processedUntil`, `appliedAckUntil`) is persisted separately from the
-  history so lists, widgets and notifications never scan history.
-- `Reminder.activeSince`: activations at or before it never happen. Set to
-  "now" on create, schedule edit, resume and restore — this is what prevents
-  catch-up after a pause/edit/archive.
-- Schedule equality is **semantic**: `RepeatRecurrence` ignores `weekdays`
-  unless weekly and `dayOfMonth` unless monthly; `RangeTiming` ignores
-  `intervalMinutes` in random mode. The editor keeps those values (for
-  switching back) but `EditorDraft.schedule` normalizes them, so
+  weekdays, dayOfMonth)`) + `times: List<ReminderTime>` (any order;
+  `orderedTimes` sorts by start). `ReminderTime(start, end?, mode
+  once/repeat/random, intervalMinutes, maxNotifications?, randomCount)`.
+  `Schedule.fromJson` also reads the pre-2026-11-05 `timing` (fixed →
+  once, range interval → repeat with an end, range random → random).
+- `Occurrence` = one time on one date: `start`, `end?`, `nextStart?` (the
+  schedule's next time), `missesAt` (= end ?? nextStart), `notifications`
+  (lazy, maybe endless: repeat before the end / next start / max; random
+  in `[start, end)`), `dueAt` = first notification.
+- `ScheduleEngine`: `occurrencesFrom(id, schedule, date)` (in start order,
+  each with its `nextStart`; ends with the recurrence or after 3700 days);
+  `dueBetween(id, schedule, from, to)` = occurrences becoming due in
+  `(from, to]`; `upcoming(...)` / `upcomingFor(reminder, ...)` = due
+  strictly after; `isFinished(reminder, now)`; `missesAt(reminder,
+  pending)` / `nextStartAfter(reminder, start)` (only times that will
+  really come: none while paused/archived, none due at or before
+  `activeSince`). Times past midnight are found by scanning from the day
+  before. Random seeds `SeededRandom` with
+  `stableHash32('$reminderId|$date|$start')`; never switch to `dart:math`
+  `Random(seed)` (its sequence may change between SDK releases).
+  `test/core/hash_and_random_test.dart` pins the output — it was
+  cross-checked against the reference JavaScript mulberry32/FNV-1a.
+- `advanceRuntime` is the state machine: replays occurrences becoming due,
+  misses (`missesAt`; `pendingMissesAt` for the stored pending one) and
+  Done marks in time order (miss, then due, then Done at the same instant).
+  A due occurrence becomes `pending` (one replacing a still-pending one
+  misses it — only after schedule edits); a miss counts for its occurrence's
+  date (`missedDate` / `missedCount`); Done finishes the pending one
+  without touching the count; `last` = latest outcome.
+  `advanceReminder(reminder, runtime, engine, now, acknowledgments)` wraps
+  it for a reminder (the sync, and — without acks — the views, so the app
+  is right between syncs). `closePendingAsMissed` is used by archive.
+- `ReminderStanding.at(runtime, now)`: firing (pending, count of its date),
+  missed (today's last outcome missed) or done; the count only for today
+  (or the firing time's date), so a new day starts clean.
+- `ReminderRuntime` (`pending` occurrence incl. its `ReminderTime` — edits
+  don't change it —, `missedDate`/`missedCount`, `last`, `processedUntil`,
+  `appliedAckUntil`) is persisted separately from the history so lists,
+  widgets and notifications never scan history; it still reads the old
+  `pendingAt` format.
+- `Reminder.activeSince`: occurrences due at or before it never happen. Set
+  to "now" on create, schedule edit, resume and restore — this is what
+  prevents catch-up after a pause/edit/archive.
+- Equality is **semantic**: `RepeatRecurrence` ignores `weekdays` unless
+  weekly and `dayOfMonth` unless monthly; `ReminderTime` ignores the
+  interval and max unless repeating and the random count unless random;
+  `Schedule` ignores the order of times. The editor keeps unused values
+  (for switching back) but `EditorDraft.schedule` normalizes them, so
   "unchanged" really compares equal.
+- `validateSchedule`: issues carry a `timeIndex` into `Schedule.times`
+  (`timeSpan` for start/end, overlaps and "more than a day").
 
 ### Data (`lib/src/data`)
 
 sembast database `just_reminder.db` in the app support directory, schema
-version 1. Stores: `reminders` (id → Reminder JSON), `runtimes` (id →
-ReminderRuntime JSON), `history/<reminderId>` (activation epoch ms →
-ActivationRecord JSON; one store per reminder so queries stay small and
+version 1 (the 2026-11-05 formats are read leniently, no migration step).
+Stores: `reminders` (id → Reminder JSON), `runtimes` (id → ReminderRuntime
+JSON), `history/<reminderId>` (occurrence start, epoch ms →
+OccurrenceRecord JSON; one store per reminder so queries stay small and
 delete is a `drop`). `ReminderRepository.save` writes reminder, runtime and
 records in one transaction. DateTimes are stored as epoch ms ints.
 
@@ -373,18 +412,18 @@ records in one transaction. DateTimes are stored as epoch ms ints.
 
 - **sembast is opened only in the main isolate.** Notification-action and
   widget-tap handlers run in background isolates and must never open it.
-- `AckInbox` is the bridge: every acknowledgment (app, widget, notification
-  button) is appended, with its time, to home_widget storage key
+- `AckInbox` is the bridge: every Done (app, widget, notification button)
+  is appended, with its time, to home_widget storage key
   `jr.acks.<reminderId>` (JSON array of epoch ms, last 50 kept).
   `HomeWidgetAckInbox` in the app; `MemoryAckInbox` in tests.
 - `ReminderService` performs every mutation, serialized through an internal
   queue: `create`, `update`, `setPaused`, `archive`, `restore`, `delete`,
-  `acknowledge` (= log to inbox + sync), `syncAll`. Sync per reminder:
-  activations in `(max(processedUntil, activeSince), now]` (none if paused
-  or archived) + inbox acks newer than `appliedAckUntil` → `advanceRuntime`
-  → save; archives the reminder when it is finished and nothing is waiting.
-  Edits, pause and archive sync first, so the old schedule's history is
-  complete. A sync with nothing new writes nothing.
+  `markDone` (= log to inbox + sync), `syncAll`. Sync per reminder:
+  `advanceReminder` with the inbox's Done marks newer than
+  `appliedAckUntil` → save; archives the reminder when it is finished and
+  nothing is due. Edits, pause and archive sync first, so the old
+  schedule's history is complete. A sync without new history or Done marks
+  writes nothing.
 - `ReminderSideEffects.onRemindersChanged()` runs after every mutation
   (inside the service queue). `AppSideEffects` publishes widget snapshots
   and reschedules notifications; failures are logged, never thrown.
@@ -393,32 +432,38 @@ records in one transaction. DateTimes are stored as epoch ms ints.
 
 ### Notifications (`lib/src/services/notifications`)
 
-- `planNotifications` (pure): live reminders' upcoming activations within
-  14 days; budget iOS 60 / Android 200 total, each reminder first gets its
-  next 3 (round-robin), then soonest-first; per reminder always a gap-free
-  prefix. Title = display name, body = description or
-  `defaultNotificationBody`, subtitle/subText "N missed" (= missed so far
-  + index), Android `timeoutAfter` = time to the reminder's next scheduled
-  notification (it replaces the old one).
+- `planNotifications` (pure): per live reminder the remaining
+  notifications of its pending occurrence (none once done or missed) and
+  those of the occurrences due within 14 days; budget iOS 60 / Android 200
+  total, each reminder first gets its next 3 (round-robin), then
+  soonest-first; per reminder always a gap-free prefix. Title = display
+  name, body = description or `defaultNotificationBody`, subtitle/subText
+  "N missed" = the date's misses so far + earlier unfinished occurrences of
+  that date (assumed missed), Android `timeoutAfter` = time to the
+  reminder's next scheduled notification (it replaces the old one).
 - Ids: `notificationIdFor(id, at)` = `stableHash31('$id@$ms')`. Payload JSON
-  `{r: reminderId, t: ms, h: hash(content + exact/inexact)}` —
-  `payloadFor(exact:)`. The mode is part of the hash so granting/revoking
-  exact alarms reschedules everything (found on the emulator: inexact
-  alarms stayed inexact after granting).
+  `{r: reminderId, t: ms, s: occurrence start ms, m: missedBefore,
+  h: hash(content + exact/inexact)}` — `payloadFor(exact:)`; the iOS
+  extension reads `s` and `m` too. The mode is part of the hash so
+  granting/revoking exact alarms reschedules everything (found on the
+  emulator: inexact alarms stayed inexact after granting).
 - `NotificationScheduler.apply` diffs plan vs `pendingNotificationRequests`
   (unchanged stay, changed rescheduled, others cancelled) but keeps a due,
-  undelivered notification of a reminder's waiting activation (late
-  inexact alarm). `clearDeliveredExcept(waitingIds)`,
-  `clearDelivered(id)`, `renumberAfterAcknowledgment(id)` (background).
+  undelivered notification of a reminder's pending occurrence (late
+  inexact alarm; `dueStarts`). `clearDeliveredExcept(dueIds)`,
+  `clearDelivered(id)`, `afterDoneOutsideApp(id, occurrenceStart:)`
+  (background: cancels the occurrence's remaining notifications, lowers
+  `m` by one on later ones of the same date).
   `NotificationGateway` abstracts the plugin (fake in tests).
 - `NotificationService`: `initialize(onBackgroundResponse:, onResponse:)` —
   **every isolate must pass the same background handler**
   (`notificationBackgroundHandler`), or the stored handle may be cleared.
   Android channel `reminders` (high importance, category reminder, tag =
-  reminder id, Acknowledge action without UI). iOS category `reminder` with
-  a plain Acknowledge action, `threadIdentifier` = reminder id. Scheduling
-  uses `tz.UTC` (absolute instants; no tz database needed).
-  `exactAllowWhileIdle` when allowed, else `inexactAllowWhileIdle`.
+  reminder id, teal, Done action without UI — its id `doneActionId` is
+  still `'acknowledge'`). iOS category `reminder` with a plain Done action,
+  `threadIdentifier` = reminder id. Scheduling uses `tz.UTC` (absolute
+  instants; no tz database needed). `exactAllowWhileIdle` when allowed,
+  else `inexactAllowWhileIdle`.
 - Permissions: `PermissionBanner` on home (notifications off → request /
   settings; Android exact alarms → "Alarms & reminders"); the editor asks
   for notification permission after saving if not granted.
@@ -428,15 +473,22 @@ records in one transaction. DateTimes are stored as epoch ms ints.
 - Storage contract (`WidgetStorageKeys`, mirrored in `WidgetStore.kt` /
   `WidgetStore.swift`): `jr.reminder.<id>` snapshot JSON (`v, id, name,
   displayName, state live|paused|archived|deleted, asOf, pendingAt,
-  missedCount, upcoming[], reminder{}`), `jr.reminders` index
-  (`[{id, name, displayName, archived}]`), `jr.acks.<id>` ack log,
+  missedCount, upcoming[], pending{start, due, missesAt}?,
+  occurrences[{start, due, missesAt}], reminder{}`), `jr.reminders` index
+  (`[{id, name, displayName, archived}]`), `jr.acks.<id>` Done log,
   Android `jr.widget.<appWidgetId>` → reminder id. Deleted reminders keep a
   tombstone snapshot.
-- State at time t (same in Dart `widgetStatusAt`, Kotlin, Swift):
-  `total = (pendingAt != null ? 1 + missedCount : 0) + |upcoming ∩ (asOf, t]|`;
-  waiting if `total > 0`, missed = `total − 1`.
+- State at time t (same in Dart `widgetStatusAt`, Kotlin, Swift) — the
+  2026-11-04 rule, until step 8 gives the widgets the three states:
+  `total = (pendingAt != null ? 1 + missedCount : 0) + |upcoming ∩ (asOf, t]|`
+  (`pendingAt` / `upcoming` = due times, `missedCount` = the pending
+  occurrence's date); waiting if `total > 0`, missed = `total − 1`. A time
+  missed at its end still shows as waiting until the app publishes again.
+- `pending` / `occurrences` tell a Done outside the app which occurrence it
+  finishes: `dueOccurrenceStartAt` (Dart) / `WidgetStore.dueOccurrenceStart`
+  (Swift) = the latest due by then, unless already missed.
 - `WidgetBridge.publish` (after every change): snapshots, index, tombstones,
-  Android `scheduleWidgetUpdates` at the upcoming times (≤ 500), then
+  Android `scheduleWidgetUpdates` at the upcoming due times (≤ 500), then
   `updateWidget(qualifiedAndroidName: …ReminderWidgetProvider, iOSName:
   ReminderWidget)`.
 - Android layouts: `reminder_widget_small.xml` (compact, the 1×1 default)
@@ -458,45 +510,55 @@ records in one transaction. DateTimes are stored as epoch ms ints.
   neutral colors on API 31+ (`values-v31`).
 - iOS (`ios/ReminderWidget`, iOS 17+): `AppIntentConfiguration` with
   `SelectReminderIntent` (entities from the index; unknown ids resolve to a
-  "deleted" entity), timeline entry now + one per upcoming activation,
+  "deleted" entity), timeline entry now + one per upcoming due time,
   thumbs-down `Button(intent: AcknowledgeReminderIntent)` runs **in the
-  extension**: appends to the ack log, rewrites the snapshot, clears and
-  re-numbers notifications (`NotificationCleanup`) — no Flutter engine in
-  the extension. Archived/deleted → `justreminder://widget-help` (the app
-  explains Edit Widget). A missing snapshot (e.g. App Group unreadable
-  before the first unlock) gets a 15-minute retry instead of the 6-hour
-  reload. Small widget: 52 pt thumb so a 2-line name + "N missed" fit.
+  extension**: `WidgetStore.markDone` appends to the Done log, rewrites the
+  snapshot and returns the finished occurrence's start;
+  `NotificationCleanup.done` clears the tray, cancels that occurrence's
+  remaining notifications and lowers "N missed" on the date's later ones
+  (payload `s` / `m`) — no Flutter engine in the extension.
+  Archived/deleted → `justreminder://widget-help` (the app explains Edit
+  Widget). A missing snapshot (e.g. App Group unreadable before the first
+  unlock) gets a 15-minute retry instead of the 6-hour reload. Small
+  widget: 52 pt thumb so a 2-line name + "N missed" fit.
 - **iOS open items for the first Mac build** (from an independent review;
-  no compile errors were found): (1) check that the notification's
-  Acknowledge works after a force-quit (README "First test on an iPhone");
-  if not, handle the action natively in `AppDelegate`
+  no compile errors were found): (1) check that the notification's Done
+  works after a force-quit (README "First test on an iPhone"); if not,
+  handle the action natively in `AppDelegate`
   (`userNotificationCenter(_:didReceive:withCompletionHandler:)` →
-  `WidgetStore.acknowledge` + `NotificationCleanup`, adding those two files
-  to the Runner target); (2) `self as? UNUserNotificationCenterDelegate`
+  `WidgetStore.markDone` + `NotificationCleanup.done`, adding those two
+  files to the Runner target); (2) `self as? UNUserNotificationCenterDelegate`
   may warn "always succeeds" (harmless; it's the plugin's documented
   line); (3) check the small widget in the Xcode preview.
 
-### Background acknowledgment (`lib/src/background`)
+### Done outside the app (`lib/src/background`)
 
-`acknowledgeInBackground(id)`: ack log + acknowledged snapshot (+
-`updateWidgets`) + clear tray + renumber. Used by
-`widgetInteractionCallback` (Android widget) and
-`notificationBackgroundHandler` (Acknowledge button, both platforms).
+`markDoneInBackground(id)`: Done log + done snapshot (+ `updateWidgets`) +
+clear tray + `afterDoneOutsideApp` for the occurrence from
+`dueOccurrenceStartAt`. Used by `widgetInteractionCallback` (Android
+widget) and `notificationBackgroundHandler` (Done button, both platforms).
 `AppEvents` (main isolate): `OpenReminder` (notification/widget tap,
-launch), `AcknowledgeReminder` (button while running),
+launch), `MarkReminderDone` (button while running),
 `ExplainWidgetEditing`; handled in `SyncScope`.
 
 ### State and UI (`lib/src/state`, `lib/src/ui`)
 
 - `nowProvider` (`NowNotifier`) ticks at every minute boundary;
   `refresh()` after syncs. `reminderViewsProvider` combines reminders,
-  runtimes, now and the engine into `ReminderView`s with a
-  `ReminderStatus` (waiting > paused > scheduled / ended; archived);
-  `reminderViewProvider(id)`, `nextActivationProvider`,
+  runtimes, now and the engine into `ReminderView`s: the runtime brought
+  forward to now (`advanceReminder`, no acks), its `ReminderStanding`, the
+  `next` occurrence, `dueMissesAt` and a `ReminderStatus` (archived >
+  firing > paused > ended > missed / done); `reminderViewProvider(id)`,
+  `nextChangeProvider` (next due time or miss of any reminder),
   `historyProvider((reminderId:, limit:))`.
 - `SyncScope` (in `MaterialApp.router`'s builder) runs `syncAll()` on
   start, on resume (`AppLifecycleListener`) and with a timer at the next
-  activation (+1 s).
+  change (+1 s), so history, notifications and widgets follow. The minute
+  tick usually shows the change first (the views advance to "now"), which
+  moves `nextChangeProvider` on and cancels that timer — so when the
+  previous next change has already passed, it syncs at once (found on the
+  emulator: a missed time's notification stayed in the tray; the old app
+  had the same race at activation times).
 - `main()` calls `deferFirstFrame()`: the launch screen stays up until
   `SyncScope`'s first sync is done and `remindersProvider` /
   `runtimesProvider` have loaded (it then calls `startupReadyProvider`,
@@ -511,25 +573,33 @@ launch), `AcknowledgeReminder` (button while running),
   `initialLocation` is that reminder, so the first frame is its details;
   `SyncScope` then syncs and skips navigating when already there. Running
   app: `SyncScope` syncs, then `go`es to the reminder.
-- Editor: `EditorDraft` (flat, immutable form state) +
-  `EditorController` (`editorProvider(EditorTarget)` —
-  `(mode: create|edit|restore, reminderId:)`). The draft id is generated
-  up front so the preview's random times equal the saved ones.
-- `reminder_actions.dart`: acknowledge / pause / archive (+undo) / restore
-  / delete with their snackbars and dialogs — reuse these from any screen.
+- Editor: `EditorDraft` (flat, immutable form state, `times:
+  List<TimeDraft>` in start order; `TimeDraft.key` identifies a row while
+  it re-sorts, ignored by `==`) + `EditorController`
+  (`editorProvider(EditorTarget)` — `(mode: create|edit|restore,
+  reminderId:)`; `editTime` / `addTime` / `removeTime`). The open row is
+  widget state (`_openTime`). The draft id is generated up front so the
+  preview's random times equal the saved ones.
+- `reminder_actions.dart`: done / pause / archive (+undo) / restore /
+  delete with their snackbars and dialogs — reuse these from any screen.
 - Theme (`ui/theme/app_theme.dart`): `buildAppTheme(scheme)`; dynamic
   scheme or `fallbackColorScheme` (indigo + teal tertiary).
-  `StatusColors` theme extension (`context.statusColors`), **not
-  harmonized** (harmonizing turned red pink): solid colors and container
-  text from `DynamicSchemeVariant.vibrant`, container backgrounds from
-  `tonalSpot` (vibrant containers were neon green). In dark mode the solid
-  colors are the mid-tone brand colors with white content (Material's
-  dark tones looked washed out / neon); dark cards use
-  `surfaceContainerHigh`. Widget colors (Android `values*/colors.xml`, iOS
-  `Palette`) are separate constants in the same spirit.
-- Components: `StatusThumb` (animated thumb), `ReminderCard`,
+  `StatusColors` theme extension (`context.statusColors`): only the due
+  teal (`due`, `onDue`, `dueContainer`, `onDueContainer`), fixed per
+  brightness and **not harmonized**; missed and done use the scheme's
+  neutrals (`outline`, `onSurfaceVariant`, `surfaceContainerHigh`). Dark
+  cards use `surfaceContainerHigh`. Widget colors (Android
+  `values*/colors.xml`, iOS `Palette`) are separate constants (still the
+  2026-11-04 green/red until step 8).
+- Components: `StatusIcon` (`StatusIconKind.of(status)`: teal ring +
+  thumbs-up, dashed ring + slashed thumb drawn with painters, faint check;
+  `surface` = the color behind it, for the slash's cut-out; `heroTag` =
+  `statusHeroTag(id)` flies the drawing between card and details, drawn
+  for the size it gets mid-flight; `onTap` makes the firing card's ring a
+  Done button), `ReminderCard`,
   `ReminderStatusLine`, `MissedBadge`, `SectionCard`, `NumberStepper`,
-  `PickerField`, `ActivationTimes` (times grouped by day), `EmptyState`.
+  `PickerField`, `OccurrenceTimes` (times grouped by day, each once),
+  `EmptyState`.
 
 ### App icon (`tool/app_icon`)
 
@@ -629,11 +699,24 @@ launch), `AcknowledgeReminder` (button while running),
   start; now cold start goes splash → reminder (current state), warm
   start goes straight to the reminder, Back leads to the list, the
   archived widget still opens "Choose a reminder". iOS not run.
-- [ ] **Step 7 — Times and states in the app**: several times per reminder
-  (start, optional end, once / every X with optional max / random N), one
-  history entry per time, firing / missed / done with the same-day missed
-  count, notifications repeating until Done or missed, "reminder" and
-  "Done" wording, the new look in the app. The widgets keep working on the
-  new data but get their new look in step 8.
+- [x] **Step 7 — Times and states in the app** (2026-11-05): several times
+  per reminder (start, optional end, once / repeat with optional max /
+  random N), one history entry per time (`Occurrence`, `OccurrenceRecord`),
+  firing / missed / done with the same-day missed count
+  (`ReminderStanding`), notifications repeating until Done or missed (Done
+  outside the app cancels the rest, also in the iOS extension), "reminder"
+  and "Done" wording, the teal look in the app (`StatusIcon`), the times
+  editor (rows that open in place); old data is read as is; `SyncScope`
+  now syncs when a change shows at the minute tick (race fixed); the
+  status icon's hero flight no longer carries its tap target ("No
+  Material widget found" when going back from a due reminder). 156
+  tests. Verified on the Android emulator (light and dark) with the old
+  database: converted reminders and history, home / details / editor; a
+  test reminder (21:43–21:46 every minute, 21:47–21:49 once):
+  notifications at 21:43 and 21:44 with a Done button, none at the end,
+  Done on the notification cancelled 21:45 and cleared the tray, the app
+  showed "Done 9:44 PM · next 9:47 PM", then due at 21:47 and missed at
+  21:49 ("1 missed", notification removed). The widgets still have the
+  old look and two states (step 8). iOS not compiled.
 - [ ] **Step 8 — Widgets**: the single widget's three states and new look,
   and the new list widget with several reminders (Android and iOS).

@@ -88,58 +88,65 @@ void main() {
     );
   });
 
-  test('timings read naturally', () {
-    expect(describeTiming(const FixedTiming(LocalTime(9, 0)), h24), '09:00');
+  test('times read naturally', () {
     expect(
-      describeTiming(
-        const RangeTiming(
+      describeTime(const ReminderTime(start: LocalTime(9, 0)), h24),
+      '09:00 · once',
+    );
+    expect(
+      describeTime(
+        const ReminderTime(
           start: LocalTime(9, 0),
           end: LocalTime(17, 0),
-          mode: RangeMode.interval,
+          mode: NotifyMode.repeat,
           intervalMinutes: 30,
-          maxActivations: 5,
+          maxNotifications: 5,
         ),
         h24,
       ),
-      '09:00–17:00, every 30 min, max 5',
+      '09:00 – 17:00 · every 30 min, max 5',
     );
     expect(
-      describeTiming(
-        const RangeTiming(
+      describeTime(
+        const ReminderTime(
           start: LocalTime(9, 0),
-          end: LocalTime(17, 0),
-          mode: RangeMode.interval,
+          mode: NotifyMode.repeat,
+          intervalMinutes: 60,
         ),
         h24,
       ),
-      '09:00–17:00, every hour',
+      '09:00 · every hour',
     );
     expect(
-      describeTiming(
-        const RangeTiming(
-          start: LocalTime(9, 0),
-          end: LocalTime(17, 0),
-          mode: RangeMode.random,
-          maxActivations: 3,
+      describeTime(
+        const ReminderTime(
+          start: LocalTime(21, 0),
+          end: LocalTime(1, 0),
+          mode: NotifyMode.random,
+          randomCount: 3,
         ),
-        h24,
+        h12,
       ),
-      '3 random times, 09:00–17:00',
+      // intl separates AM/PM with a narrow no-break space.
+      '9:00 PM – 1:00 AM · 3 at random',
     );
   });
 
-  test('one-time schedules can leave out the date', () {
+  test('schedules list their times in order', () {
     final schedule = Schedule(
       recurrence: OnceRecurrence(today.addDays(1)),
-      timing: const FixedTiming(LocalTime(19, 30)),
+      times: const [
+        ReminderTime(start: LocalTime(19, 30)),
+        ReminderTime(start: LocalTime(8, 0), end: LocalTime(9, 0)),
+      ],
     );
     expect(
       describeSchedule(schedule, h24, today: today),
-      'Once · Tomorrow · 19:30',
+      'Once · Tomorrow · 08:00 – 09:00, 19:30',
     );
     expect(
       describeSchedule(schedule, h24, today: today, includeOnceDate: false),
-      'Once · 19:30',
+      'Once · 08:00 – 09:00, 19:30',
     );
   });
 }

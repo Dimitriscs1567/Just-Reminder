@@ -10,12 +10,12 @@ import '../state/reminder_views.dart';
 import 'routing/app_router.dart';
 
 /// Keeps the app current while it runs:
-/// - syncs on start, whenever the app comes back to the foreground
-///   (acknowledgments made on a widget or notification are applied then)
-///   and exactly when the next activation is due;
+/// - syncs on start, whenever the app comes back to the foreground (Done
+///   marks made on a widget or notification are applied then) and exactly
+///   when the next reminder is due or a due one is missed, so history,
+///   notifications and widgets follow;
 /// - handles [AppEvent]s: notification and widget taps open the reminder,
-///   the notification's Acknowledge button (while the app runs)
-///   acknowledges it.
+///   the notification's Done button (while the app runs) marks it done.
 class SyncScope extends ConsumerStatefulWidget {
   const SyncScope({required this.child, super.key});
 
@@ -27,7 +27,7 @@ class SyncScope extends ConsumerStatefulWidget {
 
 class _SyncScopeState extends ConsumerState<SyncScope> {
   late final AppLifecycleListener _lifecycle;
-  ProviderSubscription<DateTime?>? _nextActivation;
+  ProviderSubscription<DateTime?>? _nextChange;
   StreamSubscription<AppEvent>? _events;
   Timer? _timer;
 
@@ -35,11 +35,15 @@ class _SyncScopeState extends ConsumerState<SyncScope> {
   void initState() {
     super.initState();
     _lifecycle = AppLifecycleListener(onResume: _onResume);
-    _nextActivation = ref.listenManual(
-      nextActivationProvider,
-      (_, next) => _scheduleSyncAt(next),
-      fireImmediately: true,
-    );
+    _nextChange = ref.listenManual(nextChangeProvider, (previous, next) {
+      // The views already show a change at the minute it happens (a time
+      // due or missed), which moves the next change on before the timer
+      // for it fires; the change still has to be recorded right away.
+      if (previous != null && !previous.isAfter(ref.read(clockProvider)())) {
+        unawaited(_sync());
+      }
+      _scheduleSyncAt(next);
+    }, fireImmediately: true);
     final events = ref.read(appEventsProvider);
     _events = events.stream.listen(_handle);
     unawaited(_startup());
@@ -53,7 +57,7 @@ class _SyncScopeState extends ConsumerState<SyncScope> {
   @override
   void dispose() {
     _timer?.cancel();
-    _nextActivation?.close();
+    _nextChange?.close();
     unawaited(_events?.cancel());
     _lifecycle.dispose();
     super.dispose();
@@ -66,7 +70,7 @@ class _SyncScopeState extends ConsumerState<SyncScope> {
 
   /// The first sync. The launch screen stays up until it is done and the
   /// reminders are loaded, so no blank (loading) or outdated frame shows —
-  /// e.g. a widget's reminder opens already showing it is waiting.
+  /// e.g. a widget's reminder opens already showing it is due.
   Future<void> _startup() async {
     final ready = ref.read(startupReadyProvider);
     try {
@@ -94,7 +98,7 @@ class _SyncScopeState extends ConsumerState<SyncScope> {
     _timer?.cancel();
     if (at == null) return;
     final delay = at.difference(ref.read(clockProvider)());
-    // A second late, so the activation is safely in the past.
+    // A second late, so the change is safely in the past.
     _timer = Timer(
       (delay.isNegative ? Duration.zero : delay) + const Duration(seconds: 1),
       _sync,
@@ -106,15 +110,15 @@ class _SyncScopeState extends ConsumerState<SyncScope> {
     final router = ref.read(routerProvider);
     switch (event) {
       case OpenReminder(:final reminderId):
-        // Make sure a just-fired activation shows as waiting.
+        // Make sure a reminder that just became due shows as due.
         await _sync();
         final location = reminderLocation(reminderId);
         // When this event launched the app, the router started there.
         if (router.routerDelegate.currentConfiguration.uri.path != location) {
           router.go(location);
         }
-      case AcknowledgeReminder(:final reminderId):
-        await ref.read(reminderServiceProvider).acknowledge(reminderId);
+      case MarkReminderDone(:final reminderId):
+        await ref.read(reminderServiceProvider).markDone(reminderId);
       case ExplainWidgetEditing():
         final context = router.routerDelegate.navigatorKey.currentContext;
         if (context == null || !context.mounted) return;

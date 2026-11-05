@@ -1,26 +1,25 @@
-import 'dart:math' as math;
-
 import '../core/local_date.dart';
-import '../core/seeded_random.dart';
-import '../core/stable_hash.dart';
+import 'occurrence.dart';
 import 'reminder.dart';
+import 'reminder_runtime.dart';
 import 'schedule.dart';
 
-/// Computes when reminders activate.
+/// Computes when reminders remind.
 ///
 /// Pure and deterministic: the same reminder id, schedule and date always
-/// give the same instants, including random times. All instants are in the
-/// device's local time zone, so reminders follow the wall clock (e.g. when
-/// travelling).
+/// give the same occurrences and notification times, random ones included.
+/// All instants are in the device's local time zone, so reminders follow
+/// the wall clock (e.g. when travelling).
 class ScheduleEngine {
   const ScheduleEngine({this.searchLimitDays = 3700});
 
-  /// How far ahead [upcoming] looks for the next activation. Enough for the
+  /// How far ahead the engine looks for the next occurrence. Enough for the
   /// sparsest schedule the editor allows ("every 99 months").
   final int searchLimitDays;
 
-  /// Activations in the half-open interval `(from, to]`, oldest first.
-  List<DateTime> between(
+  /// Occurrences that become due in the half-open interval `(from, to]`,
+  /// oldest first.
+  List<Occurrence> dueBetween(
     String reminderId,
     Schedule schedule,
     DateTime from,
@@ -30,9 +29,9 @@ class ScheduleEngine {
     return upcoming(reminderId, schedule, from, count: 1 << 30, until: to);
   }
 
-  /// Up to [count] activations strictly after [after] (and not later than
-  /// [until], when given), oldest first.
-  List<DateTime> upcoming(
+  /// Up to [count] occurrences that become due strictly after [after] (and
+  /// not after [until], when given), oldest first.
+  List<Occurrence> upcoming(
     String reminderId,
     Schedule schedule,
     DateTime after, {
@@ -40,129 +39,126 @@ class ScheduleEngine {
     DateTime? until,
   }) {
     if (count <= 0) return const [];
-    final recurrence = schedule.recurrence;
-    final afterDate = LocalDate.fromDateTime(after);
-
-    // A window that runs past midnight may have started the day before.
-    var date = afterDate.addDays(-1);
-    if (date.isBefore(recurrence.firstDate)) date = recurrence.firstDate;
-
-    var lastDate = until == null
-        ? afterDate.addDays(searchLimitDays)
-        : LocalDate.fromDateTime(until);
-    final recurrenceEnd = recurrence.lastDate;
-    if (recurrenceEnd != null && recurrenceEnd.isBefore(lastDate)) {
-      lastDate = recurrenceEnd;
-    }
-
-    final result = <DateTime>[];
-    while (!date.isAfter(lastDate) && result.length < count) {
-      if (recurrence.occursOn(date)) {
-        for (final at in windowActivations(reminderId, schedule.timing, date)) {
-          if (at.isAfter(after) && (until == null || !at.isAfter(until))) {
-            result.add(at);
-          }
-        }
+    final result = <Occurrence>[];
+    // A time that runs past midnight may have started the day before.
+    for (final occurrence in occurrencesFrom(
+      reminderId,
+      schedule,
+      LocalDate.fromDateTime(after).addDays(-1),
+    )) {
+      if (until != null && occurrence.start.isAfter(until)) break;
+      final due = occurrence.dueAt;
+      if (!due.isAfter(after) || (until != null && due.isAfter(until))) {
+        continue;
       }
-      date = date.addDays(1);
+      result.add(occurrence);
+      if (result.length >= count) break;
     }
-    // Windows never overlap, so this is already sorted; keep it robust.
-    result.sort();
-    return result.length > count ? result.sublist(0, count) : result;
+    // Times never overlap, so this is already sorted; keep it robust.
+    return result..sort((a, b) => a.dueAt.compareTo(b.dueAt));
   }
 
   /// Like [upcoming], for a whole reminder: nothing while it is paused or
-  /// archived, and nothing at or before its `activeSince`.
-  List<DateTime> upcomingFor(
+  /// archived, and nothing due at or before its `activeSince`.
+  List<Occurrence> upcomingFor(
     Reminder reminder,
     DateTime after, {
     int count = 1,
     DateTime? until,
   }) {
     if (!reminder.isLive) return const [];
-    final from = after.isAfter(reminder.activeSince)
-        ? after
-        : reminder.activeSince;
     return upcoming(
       reminder.id,
       reminder.schedule,
-      from,
+      _later(after, reminder.activeSince),
       count: count,
       until: until,
     );
   }
 
-  /// Whether [reminder]'s schedule can never activate again after [after]
-  /// (a past one-time reminder, or a repeating one past its end date).
-  /// Paused state is ignored: a paused reminder that could still activate
-  /// after being resumed is not finished.
-  bool isFinished(Reminder reminder, DateTime after) {
-    final from = after.isAfter(reminder.activeSince)
-        ? after
-        : reminder.activeSince;
-    return upcoming(reminder.id, reminder.schedule, from).isEmpty;
+  /// Whether [reminder] can never become due again after [after] (a past
+  /// one-time reminder, or a repeating one past its end date). Paused state
+  /// is ignored: a paused reminder that could still remind after being
+  /// resumed is not finished.
+  bool isFinished(Reminder reminder, DateTime after) => upcoming(
+    reminder.id,
+    reminder.schedule,
+    _later(after, reminder.activeSince),
+  ).isEmpty;
+
+  /// When [pending] counts as missed unless it is done: at its end, or else
+  /// when [reminder]'s next time starts. `null`: it stays due until done.
+  DateTime? missesAt(Reminder reminder, PendingOccurrence pending) =>
+      pending.end ?? nextStartAfter(reminder, pending.start);
+
+  /// The start of [reminder]'s first time after [start] that will really
+  /// come (it becomes due after `activeSince`); `null` while the reminder is
+  /// paused or archived, or when no time follows.
+  DateTime? nextStartAfter(Reminder reminder, DateTime start) {
+    if (!reminder.isLive) return null;
+    for (final occurrence in occurrencesFrom(
+      reminder.id,
+      reminder.schedule,
+      LocalDate.fromDateTime(start).addDays(-1),
+    )) {
+      if (!occurrence.start.isAfter(start)) continue;
+      if (!occurrence.dueAt.isAfter(reminder.activeSince)) continue;
+      return occurrence.start;
+    }
+    return null;
   }
 
-  /// Activations of the window that starts on [date], ignoring whether the
-  /// recurrence selects that date.
-  List<DateTime> windowActivations(
+  /// Every occurrence of [schedule] from [fromDate] on, in start order, each
+  /// knowing when the next one starts. It ends with the recurrence, or
+  /// [searchLimitDays] after [fromDate].
+  Iterable<Occurrence> occurrencesFrom(
     String reminderId,
-    Timing timing,
-    LocalDate date,
-  ) {
-    switch (timing) {
-      case FixedTiming(:final time):
-        return [date.at(time)];
-      case final RangeTiming range:
-        final start = date.at(range.start);
-        final end = (range.endsNextDay ? date.addDays(1) : date).at(range.end);
-        if (!end.isAfter(start)) return const [];
-        return switch (range.mode) {
-          RangeMode.interval => _intervalActivations(range, start, end),
-          RangeMode.random => _randomActivations(
-            range,
-            start,
-            end,
-            SeededRandom(stableHash32('$reminderId|${date.toIso()}')),
-          ),
-        };
+    Schedule schedule,
+    LocalDate fromDate,
+  ) sync* {
+    Occurrence? previous;
+    for (final occurrence in _slots(reminderId, schedule, fromDate)) {
+      if (previous != null) yield previous.withNextStart(occurrence.start);
+      previous = occurrence;
+    }
+    if (previous != null) yield previous;
+  }
+
+  /// The occurrences without their next start.
+  Iterable<Occurrence> _slots(
+    String reminderId,
+    Schedule schedule,
+    LocalDate fromDate,
+  ) sync* {
+    final recurrence = schedule.recurrence;
+    final times = schedule.orderedTimes;
+    if (times.isEmpty) return;
+    var date = fromDate.isBefore(recurrence.firstDate)
+        ? recurrence.firstDate
+        : fromDate;
+    var last = date.addDays(searchLimitDays);
+    final recurrenceEnd = recurrence.lastDate;
+    if (recurrenceEnd != null && recurrenceEnd.isBefore(last)) {
+      last = recurrenceEnd;
+    }
+    while (!date.isAfter(last)) {
+      if (recurrence.occursOn(date)) {
+        for (final time in times) {
+          final end = time.end;
+          yield Occurrence(
+            reminderId: reminderId,
+            date: date,
+            time: time,
+            start: date.at(time.start),
+            end: end == null
+                ? null
+                : (time.endsNextDay ? date.addDays(1) : date).at(end),
+          );
+        }
+      }
+      date = date.addDays(1);
     }
   }
 
-  /// From the range start, every interval, up to and including the end,
-  /// capped at `maxActivations` when set.
-  static List<DateTime> _intervalActivations(
-    RangeTiming range,
-    DateTime start,
-    DateTime end,
-  ) {
-    final step = Duration(minutes: math.max(1, range.intervalMinutes));
-    final cap = range.maxActivations;
-    final result = <DateTime>[];
-    for (var at = start; !at.isAfter(end); at = at.add(step)) {
-      if (cap != null && result.length >= cap) break;
-      result.add(at);
-    }
-    return result;
-  }
-
-  /// Exactly N times: the window is split into N equal slots (whole minutes)
-  /// and each slot gets one random minute, so times never bunch up.
-  static List<DateTime> _randomActivations(
-    RangeTiming range,
-    DateTime start,
-    DateTime end,
-    SeededRandom random,
-  ) {
-    final minutes = end.difference(start).inMinutes;
-    final count = math.min(math.max(1, range.maxActivations ?? 1), minutes);
-    final result = <DateTime>[];
-    for (var i = 0; i < count; i++) {
-      final slotStart = i * minutes ~/ count;
-      final slotEnd = (i + 1) * minutes ~/ count;
-      final offset = slotStart + random.nextInt(slotEnd - slotStart);
-      result.add(start.add(Duration(minutes: offset)));
-    }
-    return result;
-  }
+  static DateTime _later(DateTime a, DateTime b) => a.isAfter(b) ? a : b;
 }

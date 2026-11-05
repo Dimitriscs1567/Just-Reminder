@@ -1,7 +1,7 @@
 import 'dart:async';
 
 /// Something the outside world asks the app to do: open a reminder (tap on
-/// a notification or widget), acknowledge one (notification button while
+/// a notification or widget), mark one done (notification button while
 /// the app runs), or explain how to re-pick an iOS widget's reminder.
 sealed class AppEvent {
   const AppEvent();
@@ -13,8 +13,8 @@ final class OpenReminder extends AppEvent {
   final String reminderId;
 }
 
-final class AcknowledgeReminder extends AppEvent {
-  const AcknowledgeReminder(this.reminderId);
+final class MarkReminderDone extends AppEvent {
+  const MarkReminderDone(this.reminderId);
 
   final String reminderId;
 }

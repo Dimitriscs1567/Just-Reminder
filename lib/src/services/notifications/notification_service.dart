@@ -30,7 +30,9 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin;
   final NotificationScheduler scheduler;
 
-  static const acknowledgeActionId = 'acknowledge';
+  /// The Done button. Its id predates the "Done" wording; it stays, so
+  /// notifications scheduled by older versions keep working.
+  static const doneActionId = 'acknowledge';
   static const _iosCategoryId = 'reminder';
   static const _androidIcon = 'ic_stat_reminder';
 
@@ -53,8 +55,8 @@ class NotificationService {
             _iosCategoryId,
             actions: [
               DarwinNotificationAction.plain(
-                acknowledgeActionId,
-                'Acknowledge',
+                doneActionId,
+                'Done',
               ),
             ],
           ),
@@ -132,22 +134,22 @@ NotificationDetails notificationDetailsFor(PlannedNotification notification) =>
       android: AndroidNotificationDetails(
         'reminders',
         'Reminders',
-        channelDescription: 'Alerts when a reminder activates',
+        channelDescription: 'Alerts when a reminder is due',
         importance: Importance.high,
         priority: Priority.high,
         category: AndroidNotificationCategory.reminder,
         visibility: NotificationVisibility.public,
-        color: const Color(0xFFD93025),
+        color: const Color(0xFF0F766E),
         // The tag groups a reminder's notifications so they can be removed
-        // once it is acknowledged.
+        // once it is done.
         tag: notification.reminderId,
         subText: notification.subtitle,
         timeoutAfter: notification.replacedAfter?.inMilliseconds,
         styleInformation: BigTextStyleInformation(notification.body),
         actions: const [
           AndroidNotificationAction(
-            NotificationService.acknowledgeActionId,
-            'Acknowledge',
+            NotificationService.doneActionId,
+            'Done',
           ),
         ],
       ),
@@ -187,7 +189,8 @@ class _PluginGateway implements NotificationGateway {
     title: notification.title,
     body: notification.body,
     payload: notification.payloadFor(exact: exact),
-    // Activations are absolute instants, so UTC needs no time zone database.
+    // Notification times are absolute instants, so UTC needs no time zone
+    // database.
     scheduledDate: tz.TZDateTime.from(notification.at, tz.UTC),
     notificationDetails: notificationDetailsFor(notification),
     androidScheduleMode: exact

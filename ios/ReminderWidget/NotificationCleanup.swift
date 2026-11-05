@@ -1,14 +1,18 @@
 import Foundation
 import UserNotifications
 
-/// What the Dart side does after an acknowledgment outside the app, for
-/// acknowledgments made on the iOS widget: removes the reminder's shown
-/// notifications and re-numbers "N missed" on its upcoming ones.
+/// What the Dart side does after a Done outside the app
+/// (`NotificationScheduler.afterDoneOutsideApp`), for Done on the iOS
+/// widget: removes the reminder's shown notifications, cancels the
+/// remaining notifications of the time that was done, and lowers "N missed"
+/// by one on the same day's later times (they had counted it as missed).
 ///
 /// flutter_local_notifications sets each notification's threadIdentifier to
-/// the reminder id (see notification_service.dart).
+/// the reminder id and keeps the payload in userInfo["payload"]: JSON with
+/// `r` (reminder), `t` (when), `s` (start of its time), `m` (the "N missed"
+/// it shows) and `h` — see notification_plan.dart.
 enum NotificationCleanup {
-  static func acknowledge(_ reminderId: String) async {
+  static func done(_ reminderId: String, occurrenceStart: Int64?) async {
     let center = UNUserNotificationCenter.current()
 
     let shown = await center.deliveredNotifications()
@@ -18,28 +22,56 @@ enum NotificationCleanup {
       center.removeDeliveredNotifications(withIdentifiers: shown)
     }
 
-    let upcoming = await center.pendingNotificationRequests()
-      .filter { $0.content.threadIdentifier == reminderId }
-      .compactMap { request -> (request: UNNotificationRequest, date: Date)? in
-        guard let date = (request.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate()
-        else { return nil }
-        return (request: request, date: date)
+    guard let occurrenceStart else { return }
+    let doneDay = WidgetStore.date(fromMillis: occurrenceStart)
+    var finished: [String] = []
+    for request in await center.pendingNotificationRequests()
+    where request.content.threadIdentifier == reminderId {
+      guard var payload = decode(request) else { continue }
+      let start = number(payload["s"]) ?? number(payload["t"])
+      guard let start else { continue }
+      if start == occurrenceStart {
+        finished.append(request.identifier)
+        continue
       }
-      .sorted { $0.date < $1.date }
-
-    for (rank, item) in upcoming.enumerated() {
-      let subtitle = rank == 0 ? "" : "\(rank) missed"
+      let missed = Int(number(payload["m"]) ?? 0)
       guard
-        item.request.content.subtitle != subtitle,
-        let content = item.request.content.mutableCopy() as? UNMutableNotificationContent
+        start > occurrenceStart,
+        missed > 0,
+        Calendar.current.isDate(WidgetStore.date(fromMillis: start), inSameDayAs: doneDay),
+        let content = request.content.mutableCopy() as? UNMutableNotificationContent
       else { continue }
-      content.subtitle = subtitle
-      let replacement = UNNotificationRequest(
-        identifier: item.request.identifier,
-        content: content,
-        trigger: item.request.trigger
+      payload["m"] = missed - 1
+      content.subtitle = missed - 1 == 0 ? "" : "\(missed - 1) missed"
+      if let data = try? JSONSerialization.data(withJSONObject: payload),
+        let raw = String(data: data, encoding: .utf8)
+      {
+        var userInfo = content.userInfo
+        userInfo["payload"] = raw
+        content.userInfo = userInfo
+      }
+      try? await center.add(
+        UNNotificationRequest(
+          identifier: request.identifier,
+          content: content,
+          trigger: request.trigger
+        )
       )
-      try? await center.add(replacement)
     }
+    if !finished.isEmpty {
+      center.removePendingNotificationRequests(withIdentifiers: finished)
+    }
+  }
+
+  private static func decode(_ request: UNNotificationRequest) -> [String: Any]? {
+    guard
+      let raw = request.content.userInfo["payload"] as? String,
+      let data = raw.data(using: .utf8)
+    else { return nil }
+    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+  }
+
+  private static func number(_ value: Any?) -> Int64? {
+    (value as? NSNumber)?.int64Value
   }
 }

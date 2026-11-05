@@ -1,5 +1,9 @@
-import 'activation.dart';
+import '../core/local_date.dart';
+import 'occurrence.dart';
+import 'occurrence_record.dart';
+import 'reminder.dart';
 import 'reminder_runtime.dart';
+import 'schedule_engine.dart';
 
 /// The outcome of moving a reminder's runtime forward in time.
 class RuntimeAdvance {
@@ -8,67 +12,52 @@ class RuntimeAdvance {
   final ReminderRuntime runtime;
 
   /// History records that were created or changed.
-  final List<ActivationRecord> records;
+  final List<OccurrenceRecord> records;
 }
 
-/// Replays new [activations] and [acknowledgments] in time order:
+/// Replays, in time order:
 ///
-/// - an activation becomes the waiting (pending) one; if another one was
-///   still waiting, that one is recorded as **missed**;
-/// - an acknowledgment acknowledges the waiting activation, if there is one,
-///   and resets the missed count.
+/// - [occurrences] becoming due: each becomes the pending (firing) one. They
+///   must become due after `runtime.processedUntil` and at or before
+///   [until]. Should another one still be pending (only possible after the
+///   schedule was edited), it is recorded as missed right then;
+/// - pending times being missed at their end, or when the next time starts
+///   (`Occurrence.missesAt`, and [pendingMissesAt] for the runtime's own
+///   pending time). Each miss counts for the day its time belongs to;
+/// - [acknowledgments] (Done): the pending time is done. Done doesn't reset
+///   the missed count; only a new day does.
 ///
-/// When an activation and an acknowledgment share an instant, the
-/// activation goes first. [activations] must all be later than
-/// `runtime.processedUntil`; afterwards `processedUntil` is [until].
+/// At the same instant a miss comes first, then a time becoming due, then a
+/// Done mark. Afterwards `processedUntil` is [until].
 RuntimeAdvance advanceRuntime({
   required ReminderRuntime runtime,
-  required Iterable<DateTime> activations,
+  required Iterable<Occurrence> occurrences,
+  required DateTime? pendingMissesAt,
   required Iterable<DateTime> acknowledgments,
   required DateTime until,
 }) {
   final events = <_Event>[
-    for (final at in activations) _Event(at, isAcknowledgment: false),
-    for (final at in acknowledgments) _Event(at, isAcknowledgment: true),
+    if (runtime.pending case final pending?
+        when pendingMissesAt != null && !pendingMissesAt.isAfter(until))
+      _Event(pendingMissesAt, _Kind.miss, start: pending.start),
+    for (final occurrence in occurrences) ...[
+      _Event(occurrence.dueAt, _Kind.due, occurrence: occurrence),
+      if (occurrence.missesAt case final missesAt? when !missesAt.isAfter(until))
+        _Event(missesAt, _Kind.miss, start: occurrence.start),
+    ],
+    for (final at in acknowledgments) _Event(at, _Kind.ack),
   ]..sort(_Event.compare);
 
-  final reminderId = runtime.reminderId;
-  final records = <DateTime, ActivationRecord>{};
-  var pendingAt = runtime.pendingAt;
-  var missedCount = runtime.missedCount;
-  var lastAcknowledgedAt = runtime.lastAcknowledgedAt;
-  var appliedAckUntil = runtime.appliedAckUntil;
-
+  final state = _State(runtime);
   for (final event in events) {
-    final pending = pendingAt;
-    if (event.isAcknowledgment) {
-      if (pending != null) {
-        records[pending] = ActivationRecord(
-          reminderId: reminderId,
-          scheduledAt: pending,
-          status: ActivationStatus.acknowledged,
-          acknowledgedAt: event.at,
-        );
-        pendingAt = null;
-        missedCount = 0;
-        lastAcknowledgedAt = event.at;
-      }
-      if (event.at.isAfter(appliedAckUntil)) appliedAckUntil = event.at;
-    } else {
-      if (pending != null) {
-        records[pending] = ActivationRecord(
-          reminderId: reminderId,
-          scheduledAt: pending,
-          status: ActivationStatus.missed,
-        );
-        missedCount++;
-      }
-      records[event.at] = ActivationRecord(
-        reminderId: reminderId,
-        scheduledAt: event.at,
-        status: ActivationStatus.pending,
-      );
-      pendingAt = event.at;
+    switch (event.kind) {
+      case _Kind.miss:
+        if (state.pending?.start == event.start) state.miss(event.at);
+      case _Kind.due:
+        if (state.pending != null) state.miss(event.at);
+        state.becomeDue(event.occurrence!);
+      case _Kind.ack:
+        state.done(event.at);
     }
   }
 
@@ -77,42 +66,144 @@ RuntimeAdvance advanceRuntime({
       processedUntil: until.isAfter(runtime.processedUntil)
           ? until
           : runtime.processedUntil,
-      appliedAckUntil: appliedAckUntil,
-      pendingAt: pendingAt,
-      missedCount: missedCount,
-      lastAcknowledgedAt: lastAcknowledgedAt,
+      appliedAckUntil: state.appliedAckUntil,
+      pending: state.pending,
+      missedDate: state.missedDate,
+      missedCount: state.missedCount,
+      last: state.last,
     ),
-    records.values.toList(),
+    state.records.values.toList(),
   );
 }
 
-/// Records the waiting activation, if any, as missed. Used when a reminder
-/// is archived while it is active.
-RuntimeAdvance closePendingAsMissed(ReminderRuntime runtime) {
-  final pending = runtime.pendingAt;
-  if (pending == null) return RuntimeAdvance(runtime, const []);
-  return RuntimeAdvance(
-    runtime.copyWith(pendingAt: null, missedCount: runtime.missedCount + 1),
-    [
-      ActivationRecord(
-        reminderId: runtime.reminderId,
-        scheduledAt: pending,
-        status: ActivationStatus.missed,
-      ),
-    ],
+/// [reminder]'s [runtime] brought forward to [now]: the times that became
+/// due since `processedUntil` (none while paused or archived, none due at
+/// or before `activeSince`), the misses and the Done marks in
+/// [acknowledgments]. Without acknowledgments this is what the app shows
+/// between syncs; a sync then records the same.
+RuntimeAdvance advanceReminder({
+  required Reminder reminder,
+  required ReminderRuntime runtime,
+  required ScheduleEngine engine,
+  required DateTime now,
+  Iterable<DateTime> acknowledgments = const [],
+}) {
+  final from = runtime.processedUntil.isAfter(reminder.activeSince)
+      ? runtime.processedUntil
+      : reminder.activeSince;
+  final pending = runtime.pending;
+  return advanceRuntime(
+    runtime: runtime,
+    occurrences: reminder.isLive
+        ? engine.dueBetween(reminder.id, reminder.schedule, from, now)
+        : const [],
+    pendingMissesAt: pending == null
+        ? null
+        : engine.missesAt(reminder, pending),
+    acknowledgments: acknowledgments,
+    until: now,
   );
 }
+
+/// Records the pending time, if any, as missed at [at]. Used when a
+/// reminder is archived while a time is due.
+RuntimeAdvance closePendingAsMissed(ReminderRuntime runtime, DateTime at) =>
+    advanceRuntime(
+      runtime: runtime,
+      occurrences: const [],
+      pendingMissesAt: at,
+      acknowledgments: const [],
+      until: at,
+    );
+
+class _State {
+  _State(ReminderRuntime runtime)
+    : reminderId = runtime.reminderId,
+      pending = runtime.pending,
+      missedDate = runtime.missedDate,
+      missedCount = runtime.missedCount,
+      last = runtime.last,
+      appliedAckUntil = runtime.appliedAckUntil;
+
+  final String reminderId;
+  final records = <DateTime, OccurrenceRecord>{};
+  PendingOccurrence? pending;
+  LocalDate? missedDate;
+  int missedCount;
+  LastOutcome? last;
+  DateTime appliedAckUntil;
+
+  void becomeDue(Occurrence occurrence) {
+    final due = PendingOccurrence.of(occurrence);
+    pending = due;
+    records[due.start] = _record(due, OccurrenceStatus.pending);
+  }
+
+  void miss(DateTime at) {
+    final missed = pending!;
+    records[missed.start] = _record(missed, OccurrenceStatus.missed);
+    final countedDate = missedDate;
+    if (countedDate == missed.date) {
+      missedCount++;
+    } else if (countedDate == null || missed.date.isAfter(countedDate)) {
+      missedDate = missed.date;
+      missedCount = 1;
+    }
+    last = LastOutcome(
+      date: missed.date,
+      start: missed.start,
+      status: OccurrenceStatus.missed,
+      at: at,
+    );
+    pending = null;
+  }
+
+  void done(DateTime at) {
+    final due = pending;
+    if (due != null && !due.dueAt.isAfter(at)) {
+      records[due.start] = _record(due, OccurrenceStatus.done, doneAt: at);
+      last = LastOutcome(
+        date: due.date,
+        start: due.start,
+        status: OccurrenceStatus.done,
+        at: at,
+      );
+      pending = null;
+    }
+    if (at.isAfter(appliedAckUntil)) appliedAckUntil = at;
+  }
+
+  OccurrenceRecord _record(
+    PendingOccurrence occurrence,
+    OccurrenceStatus status, {
+    DateTime? doneAt,
+  }) => OccurrenceRecord(
+    reminderId: reminderId,
+    start: occurrence.start,
+    end: occurrence.end,
+    dueAt: occurrence.dueAt,
+    status: status,
+    doneAt: doneAt,
+  );
+}
+
+/// Event kinds in the order they are handled at the same instant.
+enum _Kind { miss, due, ack }
 
 class _Event {
-  const _Event(this.at, {required this.isAcknowledgment});
+  const _Event(this.at, this.kind, {this.start, this.occurrence});
 
   final DateTime at;
-  final bool isAcknowledgment;
+  final _Kind kind;
+
+  /// The start of the time a miss is about.
+  final DateTime? start;
+
+  /// The time that becomes due.
+  final Occurrence? occurrence;
 
   static int compare(_Event a, _Event b) {
     final byTime = a.at.compareTo(b.at);
-    if (byTime != 0) return byTime;
-    if (a.isAcknowledgment == b.isAcknowledgment) return 0;
-    return a.isAcknowledgment ? 1 : -1;
+    return byTime != 0 ? byTime : a.kind.index.compareTo(b.kind.index);
   }
 }

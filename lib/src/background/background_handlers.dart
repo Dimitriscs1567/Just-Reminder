@@ -13,36 +13,36 @@ import '../services/widget/widget_bridge.dart';
 import '../services/widget/widget_snapshot.dart';
 
 // Entry points that run in background isolates: a tap on the Android
-// widget's thumbs down, and the notification's Acknowledge button. They must
-// never open the database (sembast is main-isolate only); they log the
-// acknowledgment for the app's next sync and update widget + notifications
-// right away.
+// widget's thumb, and the notification's Done button. They must never open
+// the database (sembast is main-isolate only); they log the Done mark for
+// the app's next sync and update widget + notifications right away.
 
 /// home_widget interactivity callback (Android widget taps).
 @pragma('vm:entry-point')
 Future<void> widgetInteractionCallback(Uri? uri) async {
-  final reminderId = reminderToAcknowledge(uri);
-  if (reminderId != null) await acknowledgeInBackground(reminderId);
+  final reminderId = reminderToMarkDone(uri);
+  if (reminderId != null) await markDoneInBackground(reminderId);
 }
 
-/// flutter_local_notifications background response (Acknowledge button).
+/// flutter_local_notifications background response (Done button).
 @pragma('vm:entry-point')
 Future<void> notificationBackgroundHandler(NotificationResponse response) async {
-  if (response.actionId != NotificationService.acknowledgeActionId) return;
+  if (response.actionId != NotificationService.doneActionId) return;
   final reminderId = decodeNotificationPayload(response.payload)?.reminderId;
-  if (reminderId != null) await acknowledgeInBackground(reminderId);
+  if (reminderId != null) await markDoneInBackground(reminderId);
 }
 
-/// The reminder a widget URI asks to acknowledge:
-/// `justreminder://acknowledge?id=<reminder id>`.
-String? reminderToAcknowledge(Uri? uri) {
+/// The reminder a widget URI asks to mark done:
+/// `justreminder://acknowledge?id=<reminder id>` (the host predates the
+/// "Done" wording).
+String? reminderToMarkDone(Uri? uri) {
   if (uri == null || uri.host != 'acknowledge') return null;
   final id = uri.queryParameters['id'];
   return id == null || id.isEmpty ? null : id;
 }
 
-/// Acknowledges [reminderId] without the database.
-Future<void> acknowledgeInBackground(String reminderId) async {
+/// Marks [reminderId]'s due time done without the database.
+Future<void> markDoneInBackground(String reminderId) async {
   WidgetsFlutterBinding.ensureInitialized();
   DartPluginRegistrant.ensureInitialized();
   await HomeWidget.setAppGroupId(iosAppGroupId);
@@ -51,30 +51,33 @@ Future<void> acknowledgeInBackground(String reminderId) async {
   // 1. Log it; the app applies it to the history on its next sync.
   await const HomeWidgetAckInbox().add(reminderId, now);
 
-  // 2. Flip the widget to thumbs up now.
+  // 2. Update the widget now.
   const widgets = WidgetBridge();
   final snapshot = await widgets.readSnapshot(reminderId);
+  final doneStart = snapshot == null
+      ? null
+      : dueOccurrenceStartAt(snapshot, now);
   if (snapshot != null && widgetStatusAt(snapshot, now).isWaiting) {
     await widgets.writeSnapshot(
       reminderId,
-      acknowledgedWidgetSnapshot(
-        snapshot,
-        at: now,
-        engine: const ScheduleEngine(),
-      ),
+      doneWidgetSnapshot(snapshot, at: now, engine: const ScheduleEngine()),
     );
     await widgets.updateWidgets();
   }
 
-  // 3. Clear the tray and re-number the upcoming "N missed" texts.
+  // 3. Clear the tray, stop the time's remaining notifications and lower
+  //    "N missed" on the day's later ones.
   final notifications = NotificationService(FlutterLocalNotificationsPlugin());
   await notifications.initialize(
     onBackgroundResponse: notificationBackgroundHandler,
   );
   await notifications.scheduler.clearDelivered(reminderId);
-  await notifications.scheduler.renumberAfterAcknowledgment(
-    reminderId,
-    now: now,
-    exact: await notifications.canScheduleExact(),
-  );
+  if (doneStart != null) {
+    await notifications.scheduler.afterDoneOutsideApp(
+      reminderId,
+      occurrenceStart: doneStart,
+      now: now,
+      exact: await notifications.canScheduleExact(),
+    );
+  }
 }

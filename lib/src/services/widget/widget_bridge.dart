@@ -43,12 +43,12 @@ class WidgetBridge {
   /// iOS WidgetKit `kind` of the reminder widget.
   static const iosKind = 'ReminderWidget';
 
-  /// Android re-renders widgets at these many upcoming activations at most.
+  /// Android re-renders widgets at these many upcoming due times at most.
   static const maxScheduledRefreshes = 500;
 
   /// Writes every reminder's snapshot and the index, leaves tombstones for
-  /// deleted reminders, schedules widget refreshes at upcoming activations
-  /// (Android) and redraws the widgets.
+  /// deleted reminders, schedules widget refreshes at the upcoming due
+  /// times (Android) and redraws the widgets.
   Future<void> publish({
     required List<Reminder> reminders,
     required Map<String, ReminderRuntime> runtimes,

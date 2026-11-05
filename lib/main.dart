@@ -44,14 +44,14 @@ Future<void> main() async {
       )?.reminderId;
       if (reminderId == null) return;
       events.add(
-        response.actionId == NotificationService.acknowledgeActionId
-            ? AcknowledgeReminder(reminderId)
+        response.actionId == NotificationService.doneActionId
+            ? MarkReminderDone(reminderId)
             : OpenReminder(reminderId),
       );
     },
   );
-  // Android widget taps (thumbs down) run Dart in the background. Android
-  // only: the iOS widget acknowledges in Swift, and home_widget throws on
+  // Android widget taps (on the thumb) run Dart in the background. Android
+  // only: the iOS widget marks it done in Swift, and home_widget throws on
   // iOS < 17 (and starts an unused engine on iOS 17+).
   if (defaultTargetPlatform == TargetPlatform.android) {
     await HomeWidget.registerInteractivityCallback(widgetInteractionCallback);

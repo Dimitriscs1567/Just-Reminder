@@ -144,7 +144,7 @@ struct ReminderWidgetView: View {
             thumb(down: true)
           }
           .buttonStyle(.plain)
-          .accessibilityLabel("Acknowledge")
+          .accessibilityLabel("Done")
         }
         if missed > 0 {
           Text("\(missed) missed")
@@ -214,7 +214,7 @@ struct ReminderWidget: Widget {
       ReminderWidgetView(entry: entry)
     }
     .configurationDisplayName("Reminder")
-    .description("One reminder at a glance: thumbs up when all is clear, thumbs down when it needs you. Tap the thumbs down to acknowledge.")
+    .description("One reminder at a glance: thumbs up when all is clear, thumbs down when it needs you. Tap the thumbs down to mark it done.")
     .supportedFamilies([.systemSmall])
   }
 }

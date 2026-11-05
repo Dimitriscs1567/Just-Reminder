@@ -1,37 +1,59 @@
 import '../core/local_date.dart';
 import '../core/local_time.dart';
 
-/// When a reminder activates: on which days ([recurrence]) and at what
-/// time(s) of those days ([timing]).
+/// When a reminder reminds: on which days ([recurrence]) and at which
+/// [times] of those days. Each time is one reminder that is done or missed
+/// as a whole.
 class Schedule {
-  const Schedule({required this.recurrence, required this.timing});
+  const Schedule({required this.recurrence, required this.times});
 
-  factory Schedule.fromJson(Map<String, Object?> json) => Schedule(
-    recurrence: Recurrence.fromJson(_map(json['recurrence'])),
-    timing: Timing.fromJson(_map(json['timing'])),
-  );
+  factory Schedule.fromJson(Map<String, Object?> json) {
+    final recurrence = Recurrence.fromJson(_map(json['recurrence']));
+    final times = json['times'];
+    return Schedule(
+      recurrence: recurrence,
+      times: times is List<Object?>
+          ? [for (final time in times) ReminderTime.fromJson(_map(time))]
+          // Stored before 2026-11-05: a single fixed time or time range.
+          : [ReminderTime.fromLegacyTiming(_map(json['timing']))],
+    );
+  }
 
   final Recurrence recurrence;
-  final Timing timing;
 
-  Schedule copyWith({Recurrence? recurrence, Timing? timing}) => Schedule(
-    recurrence: recurrence ?? this.recurrence,
-    timing: timing ?? this.timing,
-  );
+  /// One or more times, in any order (see [orderedTimes]).
+  final List<ReminderTime> times;
+
+  /// [times] by start time.
+  List<ReminderTime> get orderedTimes =>
+      [...times]..sort((a, b) => a.start.compareTo(b.start));
+
+  Schedule copyWith({Recurrence? recurrence, List<ReminderTime>? times}) =>
+      Schedule(
+        recurrence: recurrence ?? this.recurrence,
+        times: times ?? this.times,
+      );
 
   Map<String, Object?> toJson() => {
     'recurrence': recurrence.toJson(),
-    'timing': timing.toJson(),
+    'times': [for (final time in orderedTimes) time.toJson()],
   };
 
+  /// The order of [times] doesn't matter.
   @override
-  bool operator ==(Object other) =>
-      other is Schedule &&
-      other.recurrence == recurrence &&
-      other.timing == timing;
+  bool operator ==(Object other) {
+    if (other is! Schedule || other.recurrence != recurrence) return false;
+    final mine = orderedTimes;
+    final theirs = other.orderedTimes;
+    if (mine.length != theirs.length) return false;
+    for (var i = 0; i < mine.length; i++) {
+      if (mine[i] != theirs[i]) return false;
+    }
+    return true;
+  }
 
   @override
-  int get hashCode => Object.hash(recurrence, timing);
+  int get hashCode => Object.hash(recurrence, Object.hashAll(orderedTimes));
 }
 
 // ---------------------------------------------------------------------------
@@ -41,7 +63,7 @@ class Schedule {
 /// The unit of a repeating reminder: every N days, weeks or months.
 enum RepeatUnit { day, week, month }
 
-/// Which days a reminder's activation window starts on.
+/// Which days a reminder reminds on.
 sealed class Recurrence {
   const Recurrence();
 
@@ -52,13 +74,13 @@ sealed class Recurrence {
         final type => throw FormatException('Unknown recurrence: $type'),
       };
 
-  /// Whether an activation window starts on [date].
+  /// Whether the reminder reminds on [date].
   bool occursOn(LocalDate date);
 
-  /// The earliest date a window can start on.
+  /// The earliest date it can remind on.
   LocalDate get firstDate;
 
-  /// The latest date a window can start on; `null` repeats forever.
+  /// The latest date it can remind on; `null` repeats forever.
   LocalDate? get lastDate;
 
   Map<String, Object?> toJson();
@@ -126,7 +148,7 @@ final class RepeatRecurrence extends Recurrence {
 
   final LocalDate startDate;
 
-  /// Last date a window may start on (inclusive); `null` = no end.
+  /// The last date it reminds on (inclusive); `null` = no end.
   final LocalDate? endDate;
 
   /// ISO weekdays (1 = Monday … 7 = Sunday). Used when [unit] is week.
@@ -214,132 +236,162 @@ final class RepeatRecurrence extends Recurrence {
 }
 
 // ---------------------------------------------------------------------------
-// Timing: what time(s) of the day
+// Times: when in the day
 // ---------------------------------------------------------------------------
 
-/// What time(s) a reminder activates on the days its recurrence selects.
-sealed class Timing {
-  const Timing();
+/// How a time notifies.
+enum NotifyMode {
+  /// One notification, at the start.
+  once,
 
-  factory Timing.fromJson(Map<String, Object?> json) => switch (json['type']) {
-    'fixed' => FixedTiming.fromJson(json),
-    'range' => RangeTiming.fromJson(json),
-    final type => throw FormatException('Unknown timing: $type'),
-  };
+  /// From the start every [ReminderTime.intervalMinutes], optionally at most
+  /// [ReminderTime.maxNotifications] times.
+  repeat,
 
-  Map<String, Object?> toJson();
-}
-
-/// Activates once at [time].
-final class FixedTiming extends Timing {
-  const FixedTiming(this.time);
-
-  factory FixedTiming.fromJson(Map<String, Object?> json) =>
-      FixedTiming(LocalTime.parse(json['time']! as String));
-
-  final LocalTime time;
-
-  @override
-  Map<String, Object?> toJson() => {'type': 'fixed', 'time': time.toIso()};
-
-  @override
-  bool operator ==(Object other) => other is FixedTiming && other.time == time;
-
-  @override
-  int get hashCode => time.hashCode;
-}
-
-/// How activations are placed inside a time range.
-enum RangeMode {
-  /// Every [RangeTiming.intervalMinutes] from the range start.
-  interval,
-
-  /// Exactly [RangeTiming.maxActivations] random times, one per equal slot.
+  /// Exactly [ReminderTime.randomCount] notifications at random moments
+  /// between start and end: the span is split into equal parts with one
+  /// random minute in each. Needs an end.
   random,
 }
 
-/// Activates several times inside the window [start]–[end]. An [end] before
-/// [start] means the window runs past midnight into the next day.
-final class RangeTiming extends Timing {
-  const RangeTiming({
+/// One time of the day a reminder reminds at. Each day it is one reminder:
+/// due from its first notification until it is done; missed at its [end],
+/// or — without an end — when the reminder's next time starts.
+///
+/// An [end] before [start] runs past midnight into the next day.
+final class ReminderTime {
+  const ReminderTime({
     required this.start,
-    required this.end,
-    required this.mode,
-    this.intervalMinutes = 60,
-    this.maxActivations,
+    this.end,
+    this.mode = NotifyMode.once,
+    this.intervalMinutes = 30,
+    this.maxNotifications,
+    this.randomCount = 3,
   });
 
-  factory RangeTiming.fromJson(Map<String, Object?> json) => RangeTiming(
-    start: LocalTime.parse(json['start']! as String),
-    end: LocalTime.parse(json['end']! as String),
-    mode: RangeMode.values.byName(json['mode']! as String),
-    intervalMinutes: json['intervalMinutes']! as int,
-    maxActivations: json['maxActivations'] as int?,
-  );
+  factory ReminderTime.fromJson(Map<String, Object?> json) {
+    final end = json['end'] as String?;
+    return ReminderTime(
+      start: LocalTime.parse(json['start']! as String),
+      end: end == null ? null : LocalTime.parse(end),
+      mode: NotifyMode.values.byName(json['mode']! as String),
+      intervalMinutes: json['intervalMinutes']! as int,
+      maxNotifications: json['maxNotifications'] as int?,
+      randomCount: json['randomCount']! as int,
+    );
+  }
+
+  /// A time as stored before 2026-11-05: `{type: fixed, time}`, or
+  /// `{type: range, start, end, mode: interval | random, intervalMinutes,
+  /// maxActivations}` whose activations are now one time's notifications.
+  factory ReminderTime.fromLegacyTiming(Map<String, Object?> json) {
+    switch (json['type']) {
+      case 'fixed':
+        return ReminderTime(start: LocalTime.parse(json['time']! as String));
+      case 'range':
+        final random = json['mode'] == 'random';
+        final max = json['maxActivations'] as int?;
+        return ReminderTime(
+          start: LocalTime.parse(json['start']! as String),
+          end: LocalTime.parse(json['end']! as String),
+          mode: random ? NotifyMode.random : NotifyMode.repeat,
+          intervalMinutes: json['intervalMinutes'] as int? ?? 60,
+          maxNotifications: random ? null : max,
+          randomCount: random ? max ?? 1 : 3,
+        );
+      case final type:
+        throw FormatException('Unknown timing: $type');
+    }
+  }
 
   final LocalTime start;
-  final LocalTime end;
-  final RangeMode mode;
 
-  /// Minutes between activations (interval mode).
+  /// When it is missed if not done; `null`: when the next time starts.
+  final LocalTime? end;
+
+  final NotifyMode mode;
+
+  /// Minutes between notifications ([NotifyMode.repeat]).
   final int intervalMinutes;
 
-  /// Interval mode: optional cap per window. Random mode: the exact number
-  /// of activations per window (required).
-  final int? maxActivations;
+  /// At most this many notifications ([NotifyMode.repeat]); `null` = no
+  /// limit.
+  final int? maxNotifications;
 
-  /// Whether the window ends on the following day.
-  bool get endsNextDay => end.minutesOfDay < start.minutesOfDay;
+  /// How many random notifications ([NotifyMode.random]).
+  final int randomCount;
 
-  /// Wall-clock length of the window in minutes (0 when start == end).
-  int get windowMinutes => endsNextDay
-      ? end.minutesOfDay + Duration.minutesPerDay - start.minutesOfDay
-      : end.minutesOfDay - start.minutesOfDay;
+  bool get hasEnd => end != null;
 
-  RangeTiming copyWith({
+  /// Whether the end is on the following day.
+  bool get endsNextDay {
+    final end = this.end;
+    return end != null && end.minutesOfDay < start.minutesOfDay;
+  }
+
+  /// Minutes from start to end (0 when they are equal); `null` without an
+  /// end.
+  int? get spanMinutes {
+    final end = this.end;
+    if (end == null) return null;
+    return endsNextDay
+        ? end.minutesOfDay + Duration.minutesPerDay - start.minutesOfDay
+        : end.minutesOfDay - start.minutesOfDay;
+  }
+
+  ReminderTime copyWith({
     LocalTime? start,
-    LocalTime? end,
-    RangeMode? mode,
+    Object? end = _unset,
+    NotifyMode? mode,
     int? intervalMinutes,
-    Object? maxActivations = _unset,
-  }) => RangeTiming(
+    Object? maxNotifications = _unset,
+    int? randomCount,
+  }) => ReminderTime(
     start: start ?? this.start,
-    end: end ?? this.end,
+    end: identical(end, _unset) ? this.end : end as LocalTime?,
     mode: mode ?? this.mode,
     intervalMinutes: intervalMinutes ?? this.intervalMinutes,
-    maxActivations: identical(maxActivations, _unset)
-        ? this.maxActivations
-        : maxActivations as int?,
+    maxNotifications: identical(maxNotifications, _unset)
+        ? this.maxNotifications
+        : maxNotifications as int?,
+    randomCount: randomCount ?? this.randomCount,
   );
 
-  @override
   Map<String, Object?> toJson() => {
-    'type': 'range',
     'start': start.toIso(),
-    'end': end.toIso(),
+    'end': end?.toIso(),
     'mode': mode.name,
     'intervalMinutes': intervalMinutes,
-    'maxActivations': maxActivations,
+    'maxNotifications': maxNotifications,
+    'randomCount': randomCount,
   };
 
-  /// Equality is semantic: [intervalMinutes] only matters in interval mode.
+  /// Equality is semantic: the interval and its limit only matter when
+  /// repeating, the random count only for random times.
   @override
   bool operator ==(Object other) =>
-      other is RangeTiming &&
+      other is ReminderTime &&
       other.start == start &&
       other.end == end &&
       other.mode == mode &&
-      (mode == RangeMode.random || other.intervalMinutes == intervalMinutes) &&
-      other.maxActivations == maxActivations;
+      (mode != NotifyMode.repeat ||
+          (other.intervalMinutes == intervalMinutes &&
+              other.maxNotifications == maxNotifications)) &&
+      (mode != NotifyMode.random || other.randomCount == randomCount);
 
   @override
   int get hashCode => Object.hash(
     start,
     end,
     mode,
-    mode == RangeMode.random ? 0 : intervalMinutes,
-    maxActivations,
+    mode == NotifyMode.repeat ? intervalMinutes : 0,
+    mode == NotifyMode.repeat ? maxNotifications : 0,
+    mode == NotifyMode.random ? randomCount : 0,
   );
+
+  @override
+  String toString() =>
+      'ReminderTime($start${end == null ? '' : '–$end'}, ${mode.name})';
 }
 
 const Object _unset = Object();

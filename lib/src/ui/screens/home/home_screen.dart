@@ -7,12 +7,12 @@ import '../../../state/reminder_views.dart';
 import '../../components/empty_state.dart';
 import '../../components/permission_banner.dart';
 import '../../components/reminder_card.dart';
-import '../../components/status_thumb.dart';
+import '../../components/status_icon.dart';
 import '../../formatting.dart';
 import '../../theme/app_theme.dart';
 
-/// The reminder list: what needs attention first, then what's coming up,
-/// then paused reminders.
+/// The reminder list: what is due first, then what's coming up, then
+/// paused reminders.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -55,16 +55,17 @@ class _HomeBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final waiting = [
+    final due = [
       for (final view in views)
-        if (view.status == ReminderStatus.waiting) view,
-    ]..sort((a, b) => a.runtime.pendingAt!.compareTo(b.runtime.pendingAt!));
+        if (view.isFiring) view,
+    ]..sort((a, b) => a.due!.dueAt.compareTo(b.due!.dueAt));
     final upcoming = [
       for (final view in views)
-        if (view.status == ReminderStatus.scheduled ||
+        if (view.status == ReminderStatus.done ||
+            view.status == ReminderStatus.missed ||
             view.status == ReminderStatus.ended)
           view,
-    ]..sort(_byNextActivation);
+    ]..sort(_byNext);
     final paused = [
       for (final view in views)
         if (view.status == ReminderStatus.paused) view,
@@ -106,8 +107,11 @@ class _HomeBody extends StatelessWidget {
               child: Column(
                 children: [
                   _SummaryCard(
-                    waiting: waiting,
+                    due: due,
                     next: upcoming.firstOrNull,
+                    missedToday: [
+                      for (final view in upcoming) view.missedCount,
+                    ].fold(0, (sum, count) => sum + count),
                     now: now,
                   ),
                   const PermissionBanner(),
@@ -115,7 +119,7 @@ class _HomeBody extends StatelessWidget {
               ),
             ),
           ),
-          ..._section(context, 'Needs attention', waiting),
+          ..._section(context, 'Due now', due),
           ..._section(context, 'Coming up', upcoming),
           ..._section(context, 'Paused', paused),
           const SliverToBoxAdapter(child: SizedBox(height: 104)),
@@ -159,9 +163,9 @@ class _HomeBody extends StatelessWidget {
     ];
   }
 
-  static int _byNextActivation(ReminderView a, ReminderView b) {
-    final x = a.nextActivation;
-    final y = b.nextActivation;
+  static int _byNext(ReminderView a, ReminderView b) {
+    final x = a.next?.dueAt;
+    final y = b.next?.dueAt;
     if (x == null && y == null) return a.reminder.name.compareTo(b.reminder.name);
     if (x == null) return 1;
     if (y == null) return -1;
@@ -169,44 +173,46 @@ class _HomeBody extends StatelessWidget {
   }
 }
 
-/// The big "all clear" / "needs you" card at the top.
+/// The big card at the top: what is due, or what comes next.
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({
-    required this.waiting,
+    required this.due,
     required this.next,
+    required this.missedToday,
     required this.now,
   });
 
-  final List<ReminderView> waiting;
+  final List<ReminderView> due;
   final ReminderView? next;
+  final int missedToday;
   final DateTime now;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final status = context.statusColors;
-    final isWaiting = waiting.isNotEmpty;
-    final background = isWaiting
-        ? status.negativeContainer
-        : status.positiveContainer;
-    final foreground = isWaiting
-        ? status.onNegativeContainer
-        : status.onPositiveContainer;
+    final isDue = due.isNotEmpty;
+    final background = isDue ? status.dueContainer : scheme.surfaceContainerHigh;
+    final foreground = isDue ? status.onDueContainer : scheme.onSurface;
     final next = this.next;
-    final nextAt = next?.nextActivation;
+    final nextAt = next?.next?.start;
 
-    final title = switch (waiting.length) {
-      0 => 'All clear',
-      1 => '1 reminder needs you',
-      final count => '$count reminders need you',
+    final title = switch (due.length) {
+      0 => 'Nothing due',
+      1 => '1 reminder is due',
+      final count => '$count reminders are due',
     };
-    final subtitle = switch (waiting.length) {
+    final missed = missedToday > 0 ? '$missedToday missed today · ' : '';
+    final subtitle = switch (due.length) {
       0 when next != null && nextAt != null =>
-        'Next: ${next.reminder.displayName} · '
+        '${missed}Next: ${next.reminder.displayName} · '
             '${formatCompactMoment(nextAt, now, TimeFormatter.of(context))}',
-      0 => 'Nothing is scheduled right now.',
-      1 => 'Acknowledge it once it’s done.',
-      _ => 'Acknowledge them once they’re done.',
+      0 => missedToday > 0
+          ? '$missedToday missed today.'
+          : 'Nothing is scheduled right now.',
+      1 => 'Tap Done once you’ve done it.',
+      _ => 'Tap Done on each once you’ve done it.',
     };
 
     return AnimatedContainer(
@@ -218,7 +224,11 @@ class _SummaryCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          StatusThumb(waiting: isWaiting, size: 64),
+          StatusIcon(
+            kind: isDue ? StatusIconKind.firing : StatusIconKind.done,
+            size: 64,
+            surface: background,
+          ),
           const SizedBox(width: 18),
           Expanded(
             child: Column(
@@ -234,7 +244,7 @@ class _SummaryCard extends StatelessWidget {
                 Text(
                   subtitle,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: foreground,
+                    color: isDue ? foreground : scheme.onSurfaceVariant,
                   ),
                 ),
               ],

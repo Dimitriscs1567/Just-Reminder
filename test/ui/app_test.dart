@@ -5,6 +5,7 @@ import 'package:just_reminder/src/core/local_date.dart';
 import 'package:just_reminder/src/core/local_time.dart';
 import 'package:just_reminder/src/domain/schedule.dart';
 import 'package:just_reminder/src/services/app_events.dart';
+import 'package:just_reminder/src/state/now.dart';
 import 'package:just_reminder/src/ui/routing/app_router.dart';
 import 'package:just_reminder/src/ui/screens/details/reminder_details_screen.dart';
 import 'package:just_reminder/src/ui/screens/home/home_screen.dart';
@@ -17,7 +18,7 @@ const dailyAtNine = Schedule(
     unit: RepeatUnit.day,
     startDate: LocalDate(2026, 11, 4),
   ),
-  timing: FixedTiming(LocalTime(9, 0)),
+  times: [ReminderTime(start: LocalTime(9, 0))],
 );
 
 void main() {
@@ -30,7 +31,7 @@ void main() {
     await harness.dispose(tester);
   });
 
-  testWidgets('a waiting reminder is acknowledged from the list', (
+  testWidgets('a due reminder is marked done from the list', (
     tester,
   ) async {
     final harness = await TestHarness.create(
@@ -47,15 +48,21 @@ void main() {
     harness.now = DateTime(2026, 11, 4, 9, 5);
     await harness.pumpApp(tester); // the app syncs on start
 
-    expect(find.text('1 reminder needs you'), findsOneWidget);
-    expect(find.text('Needs attention · 1'), findsOneWidget);
+    expect(find.text('1 reminder is due'), findsOneWidget);
+    expect(find.text('Due now · 1'), findsOneWidget);
+    // Tests run with 12-hour times (a narrow no-break space before AM).
+    expect(find.text('Due since 9:00 AM'), findsOneWidget);
 
-    await tester.tap(find.text('Acknowledge'));
+    await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
 
-    expect(find.text('All clear'), findsOneWidget);
-    expect(find.text('“Drink water” acknowledged'), findsOneWidget);
+    expect(find.text('Nothing due'), findsOneWidget);
+    expect(find.text('“Drink water” done'), findsOneWidget);
     expect(find.text('Coming up · 1'), findsOneWidget);
+    expect(
+      find.text('Done 9:05 AM · next tomorrow 9:00 AM'),
+      findsOneWidget,
+    );
     await harness.dispose(tester);
   });
 
@@ -82,7 +89,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Back on the list (the editor's preview section is gone).
-    expect(find.text('Next activations'), findsNothing);
+    expect(find.text('Next reminders'), findsNothing);
     expect(find.text('“Stretch” created'), findsOneWidget);
     expect(find.text('Stretch'), findsOneWidget);
     expect(find.textContaining('Next: 10:00'), findsOneWidget);
@@ -165,11 +172,11 @@ void main() {
     await tester.tap(find.text('Restore'));
     await tester.pumpAndSettle();
     expect(find.text('Restored'), findsOneWidget);
-    expect(find.text('All clear'), findsOneWidget);
+    expect(find.text('Nothing due'), findsOneWidget);
     await harness.dispose(tester);
   });
 
-  testWidgets('pausing stops activations; resuming starts from now', (
+  testWidgets('pausing stops reminders; resuming starts from now', (
     tester,
   ) async {
     final harness = await TestHarness.create(
@@ -194,13 +201,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Resume'));
     await tester.pumpAndSettle();
-    expect(find.text('It won’t activate until you resume it.'), findsOneWidget);
+    expect(find.text('It won’t remind you until you resume it.'), findsOneWidget);
 
     // 09:00 passes while it is paused.
     harness.now = DateTime(2026, 11, 4, 9, 5);
     await tester.runAsync(harness.service.syncAll);
     await tester.pumpAndSettle();
-    expect(find.textContaining('Waiting since'), findsNothing);
+    expect(find.textContaining('Due since'), findsNothing);
 
     // Resuming does not catch up on 09:00.
     await tester.tap(find.text('Resume'));
@@ -208,7 +215,7 @@ void main() {
     expect(find.text('Resumed'), findsOneWidget);
     await tester.drag(find.byType(ListView).first, const Offset(0, 800));
     await tester.pumpAndSettle();
-    expect(find.text('All clear'), findsOneWidget);
+    expect(find.text('Nothing due'), findsOneWidget);
     expect(find.textContaining('Next: Tomorrow'), findsOneWidget);
     await harness.dispose(tester);
   });
@@ -266,11 +273,11 @@ void main() {
         displayName: 'Mom',
         schedule: const Schedule(
           recurrence: OnceRecurrence(LocalDate(2026, 11, 4)),
-          timing: FixedTiming(LocalTime(9, 0)),
+          times: [ReminderTime(start: LocalTime(9, 0))],
         ),
       );
       harness.now = DateTime(2026, 11, 4, 9, 5);
-      await harness.service.acknowledge(reminder.id); // finished: archived
+      await harness.service.markDone(reminder.id); // finished: archived
     });
     await harness.pumpApp(tester);
 
@@ -288,7 +295,7 @@ void main() {
     await tester.tap(find.text('Restore'));
     await tester.pumpAndSettle();
     expect(
-      find.text('This schedule never activates. Pick a later date or time.'),
+      find.text('This schedule never reminds you. Pick a later date or time.'),
       findsOneWidget,
     );
 
@@ -301,7 +308,169 @@ void main() {
     await tester.tap(find.text('Restore'));
     await tester.pumpAndSettle();
     expect(find.text('“Call mom” restored'), findsOneWidget);
-    expect(find.text('All clear'), findsOneWidget);
+    expect(find.text('Nothing due'), findsOneWidget);
+    await harness.dispose(tester);
+  });
+
+  testWidgets('each time is one reminder; a missed one counts that day', (
+    tester,
+  ) async {
+    final harness = await TestHarness.create(
+      tester,
+      now: DateTime(2026, 11, 4, 8),
+    );
+    await tester.runAsync(
+      () => harness.service.create(
+        name: 'Drink water',
+        displayName: 'Water',
+        schedule: const Schedule(
+          recurrence: RepeatRecurrence(
+            unit: RepeatUnit.day,
+            startDate: LocalDate(2026, 11, 4),
+          ),
+          times: [
+            ReminderTime(
+              start: LocalTime(9, 0),
+              end: LocalTime(10, 0),
+              mode: NotifyMode.repeat,
+              intervalMinutes: 15,
+            ),
+            ReminderTime(start: LocalTime(12, 0)),
+          ],
+        ),
+      ),
+    );
+
+    // 09:00–10:00 passed without Done: missed, nothing due.
+    harness.now = DateTime(2026, 11, 4, 11);
+    await harness.pumpApp(tester);
+    expect(find.text('Missed 9:00 AM · next 12:00 PM'), findsOneWidget);
+    expect(find.text('1 missed'), findsOneWidget);
+    expect(find.text('Nothing due'), findsOneWidget);
+
+    // 12:00 is due, still showing the day's missed one.
+    harness.now = DateTime(2026, 11, 4, 12, 1);
+    await tester.runAsync(harness.service.syncAll);
+    await tester.pumpAndSettle();
+    expect(find.text('Due since 12:00 PM'), findsOneWidget);
+    expect(find.text('1 missed'), findsOneWidget);
+
+    // The history lists each time once.
+    await tester.tap(find.text('Drink water'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('History'), 300);
+    await tester.pumpAndSettle();
+    // (Also among the chips of the next days.)
+    expect(
+      find.widgetWithText(ListTile, '9:00 AM – 10:00 AM'),
+      findsOneWidget,
+    );
+    expect(find.text('Missed'), findsOneWidget);
+    expect(find.text('12:00 PM'), findsWidgets);
+    await harness.dispose(tester);
+  });
+
+  testWidgets('a change shown at the minute tick is recorded right away', (
+    tester,
+  ) async {
+    final harness = await TestHarness.create(
+      tester,
+      now: DateTime(2026, 11, 4, 8),
+    );
+    final reminder = await tester.runAsync(
+      () => harness.service.create(
+        name: 'Drink water',
+        displayName: 'Water',
+        schedule: const Schedule(
+          recurrence: RepeatRecurrence(
+            unit: RepeatUnit.day,
+            startDate: LocalDate(2026, 11, 4),
+          ),
+          times: [ReminderTime(start: LocalTime(9, 0), end: LocalTime(9, 30))],
+        ),
+      ),
+    );
+    harness.now = DateTime(2026, 11, 4, 9, 10);
+    await harness.pumpApp(tester);
+    expect(find.text('Due now · 1'), findsOneWidget);
+
+    // The minute tick at 09:30 shows it missed before the sync timer
+    // (09:30 + 1 s) fires; the app still records it then.
+    harness.now = DateTime(2026, 11, 4, 9, 30);
+    ProviderScope.containerOf(
+      tester.element(find.byType(JustReminderApp)),
+    ).read(nowProvider.notifier).refresh();
+    await tester.pumpAndSettle();
+    expect(find.text('1 missed'), findsOneWidget);
+    final runtime = await tester.runAsync(
+      () => harness.repository.getRuntime(reminder!.id),
+    );
+    expect(runtime?.isFiring, isFalse);
+    expect(runtime?.missedCount, 1);
+    await harness.dispose(tester);
+  });
+
+  testWidgets('going back from a due reminder flies its icon home cleanly', (
+    tester,
+  ) async {
+    final harness = await TestHarness.create(
+      tester,
+      now: DateTime(2026, 11, 4, 8),
+    );
+    await tester.runAsync(
+      () => harness.service.create(
+        name: 'Drink water',
+        displayName: 'Water',
+        schedule: dailyAtNine,
+      ),
+    );
+    harness.now = DateTime(2026, 11, 4, 9, 5);
+    await harness.pumpApp(tester);
+    expect(find.text('Due now · 1'), findsOneWidget);
+
+    await tester.tap(find.text('Drink water'));
+    await tester.pumpAndSettle();
+    expect(find.text('Schedule'), findsOneWidget);
+
+    // The status icon flies back to the card, whose icon can be tapped for
+    // Done; the flying copy must not need the card's Material.
+    await tester.pageBack();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(tester.takeException(), isNull);
+    await tester.pumpAndSettle();
+    expect(find.text('Due now · 1'), findsOneWidget);
+    await harness.dispose(tester);
+  });
+
+  testWidgets('the editor adds a second time and saves both', (tester) async {
+    final harness = await TestHarness.create(tester);
+    await harness.pumpApp(tester);
+
+    await tester.tap(find.text('Create a reminder'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Name'), 'Stretch');
+    await tester.pump();
+
+    // Far down the editor: not built until scrolled to.
+    await tester.scrollUntilVisible(
+      find.text('Add time'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add time'));
+    await tester.pumpAndSettle();
+    // Added an hour after the first (10:00) and opened.
+    expect(find.text('Remove this time'), findsOneWidget);
+
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(find.text('“Stretch” created'), findsOneWidget);
+    expect(
+      find.text('Every day · 10:00 AM, 11:00 AM'),
+      findsOneWidget,
+    );
     await harness.dispose(tester);
   });
 

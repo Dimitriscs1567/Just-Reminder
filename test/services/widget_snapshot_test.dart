@@ -6,16 +6,18 @@ import 'package:just_reminder/src/core/local_date.dart';
 import 'package:just_reminder/src/core/local_time.dart';
 import 'package:just_reminder/src/domain/reminder.dart';
 import 'package:just_reminder/src/domain/reminder_runtime.dart';
+import 'package:just_reminder/src/domain/runtime_advance.dart';
 import 'package:just_reminder/src/domain/schedule.dart';
 import 'package:just_reminder/src/domain/schedule_engine.dart';
 import 'package:just_reminder/src/services/app_events.dart';
 import 'package:just_reminder/src/services/widget/widget_snapshot.dart';
 
 const engine = ScheduleEngine();
-final now = DateTime(2026, 11, 4, 8);
+final created = DateTime(2026, 11, 4, 8);
 DateTime at(int hour, [int minute = 0]) => DateTime(2026, 11, 4, hour, minute);
 
-final hourly = Reminder(
+/// 09:00–10:00 (missed at 10:00), 12:00 and 15:00, every day.
+final reminder = Reminder(
   id: 'r',
   name: 'Drink water',
   displayName: 'Water',
@@ -24,54 +26,64 @@ final hourly = Reminder(
       unit: RepeatUnit.day,
       startDate: LocalDate(2026, 11, 4),
     ),
-    timing: RangeTiming(
-      start: LocalTime(9, 0),
-      end: LocalTime(12, 0),
-      mode: RangeMode.interval,
-    ),
+    times: [
+      ReminderTime(start: LocalTime(9, 0), end: LocalTime(10, 0)),
+      ReminderTime(start: LocalTime(12, 0)),
+      ReminderTime(start: LocalTime(15, 0)),
+    ],
   ),
-  createdAt: now,
-  updatedAt: now,
-  activeSince: now,
+  createdAt: created,
+  updatedAt: created,
+  activeSince: created,
 );
 
 /// Like storage: through a JSON string.
 Map<String, Object?> stored(Map<String, Object?> snapshot) =>
     jsonDecode(jsonEncode(snapshot)) as Map<String, Object?>;
 
-Map<String, Object?> snapshotOf(Reminder reminder, ReminderRuntime runtime) =>
-    stored(
-      buildWidgetSnapshot(
-        reminder: reminder,
-        runtime: runtime,
+/// The snapshot taken at [now], with the runtime as the app has it then.
+Map<String, Object?> snapshotAt(DateTime now, {Reminder? of}) {
+  final target = of ?? reminder;
+  return stored(
+    buildWidgetSnapshot(
+      reminder: target,
+      runtime: advanceReminder(
+        reminder: target,
+        runtime: ReminderRuntime.initial(target.id, created),
         engine: engine,
         now: now,
-      ),
-    );
+      ).runtime,
+      engine: engine,
+      now: now,
+    ),
+  );
+}
 
 void main() {
-  final fresh = ReminderRuntime.initial('r', now);
-
-  test('lists upcoming activations and flips to waiting at each', () {
-    final snapshot = snapshotOf(hourly, fresh);
+  test('lists when the next times become due, once per time', () {
+    final snapshot = snapshotAt(at(8));
     expect(snapshot['displayName'], 'Water');
     expect(snapshot['state'], 'live');
     expect(
-      (snapshot['upcoming']! as List<Object?>).take(4),
-      [for (final hour in [9, 10, 11, 12]) at(hour).millisecondsSinceEpoch],
+      (snapshot['upcoming']! as List<Object?>).take(3),
+      [for (final hour in [9, 12, 15]) at(hour).millisecondsSinceEpoch],
     );
+    expect((snapshot['occurrences']! as List<Object?>).first, {
+      'start': at(9).millisecondsSinceEpoch,
+      'due': at(9).millisecondsSinceEpoch,
+      'missesAt': at(10).millisecondsSinceEpoch,
+    });
 
     expect(widgetStatusAt(snapshot, at(8, 59)).kind, WidgetStatusKind.clear);
-    final atNine = widgetStatusAt(snapshot, at(9));
-    expect(atNine.isWaiting, isTrue);
-    expect(atNine.missed, 0);
-    // Not acknowledged by 11:30: the 09:00 and 10:00 ones were missed.
-    expect(widgetStatusAt(snapshot, at(11, 30)).missed, 2);
+    expect(widgetStatusAt(snapshot, at(9)).isWaiting, isTrue);
   });
 
-  test('a waiting activation and its missed count carry over', () {
-    final runtime = fresh.copyWith(pendingAt: at(7), missedCount: 1);
-    final status = widgetStatusAt(snapshotOf(hourly, runtime), at(8));
+  test('a due time and its day’s missed count carry over', () {
+    // 09:00 was missed at 10:00, 12:00 is due.
+    final snapshot = snapshotAt(at(12, 5));
+    expect(snapshot['pendingAt'], at(12).millisecondsSinceEpoch);
+    expect(snapshot['missedCount'], 1);
+    final status = widgetStatusAt(snapshot, at(12, 6));
     expect(status.isWaiting, isTrue);
     expect(status.missed, 1);
   });
@@ -79,12 +91,12 @@ void main() {
   test('archived, paused and deleted reminders', () {
     expect(
       widgetStatusAt(
-        snapshotOf(hourly.copyWith(archivedAt: now), fresh),
+        snapshotAt(at(8), of: reminder.copyWith(archivedAt: at(8))),
         at(10),
       ).kind,
       WidgetStatusKind.archived,
     );
-    final paused = snapshotOf(hourly.copyWith(paused: true), fresh);
+    final paused = snapshotAt(at(8), of: reminder.copyWith(paused: true));
     expect(paused['state'], 'paused');
     expect(widgetStatusAt(paused, at(10)).kind, WidgetStatusKind.clear);
     expect(
@@ -97,28 +109,34 @@ void main() {
     expect(widgetStatusAt(null, at(10)).kind, WidgetStatusKind.deleted);
   });
 
-  test('acknowledging outside the app clears it and keeps the schedule', () {
-    final waiting = snapshotOf(
-      hourly,
-      fresh.copyWith(pendingAt: at(7), missedCount: 2),
-    );
-    final acknowledged = stored(
-      acknowledgedWidgetSnapshot(waiting, at: at(9, 30), engine: engine),
-    );
-    expect(widgetStatusAt(acknowledged, at(9, 31)).kind, WidgetStatusKind.clear);
-    expect(acknowledged['pendingAt'], isNull);
-    expect(acknowledged['missedCount'], 0);
-    // The next activation still flips it.
-    expect(widgetStatusAt(acknowledged, at(10)).isWaiting, isTrue);
+  test('Done outside the app clears it and keeps the schedule', () {
+    final due = snapshotAt(at(12, 5));
+    final done = stored(doneWidgetSnapshot(due, at: at(12, 30), engine: engine));
+    expect(widgetStatusAt(done, at(12, 31)).kind, WidgetStatusKind.clear);
+    expect(done['pendingAt'], isNull);
+    expect(done['pending'], isNull);
+    // The next time still makes it due.
+    expect(widgetStatusAt(done, at(15)).isWaiting, isTrue);
+  });
+
+  test('a Done finishes the latest due time that is not missed yet', () {
+    final morning = snapshotAt(at(8));
+    expect(dueOccurrenceStartAt(morning, at(8, 30)), isNull);
+    expect(dueOccurrenceStartAt(morning, at(9, 30)), at(9));
+    // 09:00–10:00 is missed at 10:00: nothing to finish until 12:00.
+    expect(dueOccurrenceStartAt(morning, at(11)), isNull);
+    expect(dueOccurrenceStartAt(morning, at(12, 5)), at(12));
+    // From the snapshot's own due time.
+    expect(dueOccurrenceStartAt(snapshotAt(at(12, 5)), at(12, 30)), at(12));
   });
 
   test('widget URIs map to actions', () {
     expect(
-      reminderToAcknowledge(Uri.parse('justreminder://acknowledge?id=abc')),
+      reminderToMarkDone(Uri.parse('justreminder://acknowledge?id=abc')),
       'abc',
     );
-    expect(reminderToAcknowledge(Uri.parse('justreminder://acknowledge')), isNull);
-    expect(reminderToAcknowledge(Uri.parse('justreminder://reminder/abc')), isNull);
+    expect(reminderToMarkDone(Uri.parse('justreminder://acknowledge')), isNull);
+    expect(reminderToMarkDone(Uri.parse('justreminder://reminder/abc')), isNull);
 
     expect(
       appEventForWidgetUri(Uri.parse('justreminder://reminder/abc?homeWidget')),

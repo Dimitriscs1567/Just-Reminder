@@ -1,6 +1,6 @@
 import 'package:sembast/sembast.dart';
 
-import '../domain/activation.dart';
+import '../domain/occurrence_record.dart';
 import '../domain/reminder.dart';
 import '../domain/reminder_runtime.dart';
 
@@ -9,7 +9,7 @@ import '../domain/reminder_runtime.dart';
 /// Stores:
 /// - `reminders`: [Reminder] by id
 /// - `runtimes`: [ReminderRuntime] by reminder id
-/// - `history/<reminder id>`: [ActivationRecord] by activation time (epoch
+/// - `history/<reminder id>`: [OccurrenceRecord] by the time's start (epoch
 ///   ms). One store per reminder keeps history queries from scanning the
 ///   history of every other reminder, and makes deleting it cheap.
 class ReminderRepository {
@@ -64,14 +64,14 @@ class ReminderRepository {
   // History -----------------------------------------------------------------
 
   /// The reminder's history, newest first.
-  Stream<List<ActivationRecord>> watchHistory(String reminderId, {int? limit}) =>
+  Stream<List<OccurrenceRecord>> watchHistory(String reminderId, {int? limit}) =>
       _history(reminderId)
           .query(finder: _newestFirst(limit))
           .onSnapshots(_db)
           .map(_toRecords);
 
   /// The reminder's history, newest first.
-  Future<List<ActivationRecord>> getHistory(
+  Future<List<OccurrenceRecord>> getHistory(
     String reminderId, {
     int? limit,
   }) async => _toRecords(
@@ -85,7 +85,7 @@ class ReminderRepository {
   Future<void> save({
     Reminder? reminder,
     ReminderRuntime? runtime,
-    List<ActivationRecord> records = const [],
+    List<OccurrenceRecord> records = const [],
   }) => _db.transaction((txn) async {
     if (reminder != null) {
       await _reminders.record(reminder.id).put(txn, reminder.toJson());
@@ -95,7 +95,7 @@ class ReminderRepository {
     }
     for (final record in records) {
       await _history(record.reminderId)
-          .record(record.scheduledAt.millisecondsSinceEpoch)
+          .record(record.start.millisecondsSinceEpoch)
           .put(txn, record.toJson());
     }
   });
@@ -119,9 +119,9 @@ class ReminderRepository {
     List<RecordSnapshot<String, Map<String, Object?>>> snapshots,
   ) => [for (final snapshot in snapshots) _toReminder(snapshot.value)];
 
-  static List<ActivationRecord> _toRecords(
+  static List<OccurrenceRecord> _toRecords(
     List<RecordSnapshot<int, Map<String, Object?>>> snapshots,
   ) => [
-    for (final snapshot in snapshots) ActivationRecord.fromJson(snapshot.value),
+    for (final snapshot in snapshots) OccurrenceRecord.fromJson(snapshot.value),
   ];
 }

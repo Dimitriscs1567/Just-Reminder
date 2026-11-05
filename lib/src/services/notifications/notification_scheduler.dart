@@ -1,5 +1,6 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../../core/local_date.dart';
 import 'notification_plan.dart';
 
 /// The notification operations the scheduler needs; implemented with the
@@ -28,12 +29,12 @@ class NotificationScheduler {
   /// changed or missing ones are (re)scheduled, others are cancelled.
   ///
   /// A pending notification whose time has passed (an inexact alarm that is
-  /// running late) is kept while its activation is the reminder's waiting
-  /// one ([waitingSince]), so a late notification is not lost.
+  /// running late) is kept while its time is still the reminder's due one
+  /// ([dueStarts]: reminder id → start of its due time), so it is not lost.
   Future<void> apply(
     List<PlannedNotification> plan, {
     required DateTime now,
-    required Map<String, DateTime> waitingSince,
+    required Map<String, DateTime> dueStarts,
     required bool exact,
   }) async {
     final desired = {for (final notification in plan) notification.id: notification};
@@ -47,7 +48,7 @@ class NotificationScheduler {
       final scheduled = decodeNotificationPayload(request.payload);
       if (scheduled != null &&
           !scheduled.at.isAfter(now) &&
-          waitingSince[scheduled.reminderId] == scheduled.at) {
+          dueStarts[scheduled.reminderId] == scheduled.occurrenceStart) {
         continue;
       }
       await _gateway.cancel(request.id, tag: scheduled?.reminderId);
@@ -59,15 +60,15 @@ class NotificationScheduler {
     }
   }
 
-  /// Removes shown notifications of every reminder that is not waiting any
-  /// more (acknowledged, archived, deleted).
-  Future<void> clearDeliveredExcept(Set<String> waitingReminderIds) async {
+  /// Removes shown notifications of every reminder that has nothing due any
+  /// more (done, missed, archived, deleted).
+  Future<void> clearDeliveredExcept(Set<String> dueReminderIds) async {
     for (final notification in await _gateway.active()) {
       final reminderId = _reminderIdOf(notification);
       final id = notification.id;
       if (reminderId != null &&
           id != null &&
-          !waitingReminderIds.contains(reminderId)) {
+          !dueReminderIds.contains(reminderId)) {
         await _gateway.cancel(id, tag: notification.tag);
       }
     }
@@ -83,32 +84,45 @@ class NotificationScheduler {
     }
   }
 
-  /// After [reminderId] was acknowledged outside the app: its upcoming
-  /// notifications no longer count earlier missed activations, so they are
-  /// re-numbered 0, 1, 2… missed.
-  Future<void> renumberAfterAcknowledgment(
+  /// After [reminderId]'s time that started at [occurrenceStart] was marked
+  /// done outside the app (widget, notification button): its remaining
+  /// notifications are cancelled, and the later times of the same day no
+  /// longer count it as missed, so their "N missed" goes down by one.
+  Future<void> afterDoneOutsideApp(
     String reminderId, {
+    required DateTime occurrenceStart,
     required DateTime now,
     required bool exact,
   }) async {
-    final mine = [
-      for (final request in await _gateway.pending())
-        if (decodeNotificationPayload(request.payload) case final scheduled?
-            when scheduled.reminderId == reminderId &&
-                scheduled.at.isAfter(now))
-          (request: request, at: scheduled.at),
-    ]..sort((a, b) => a.at.compareTo(b.at));
+    final day = LocalDate.fromDateTime(occurrenceStart);
+    final kept = <({PendingNotificationRequest request, NotificationPayload payload})>[];
+    for (final request in await _gateway.pending()) {
+      final payload = decodeNotificationPayload(request.payload);
+      if (payload == null || payload.reminderId != reminderId) continue;
+      if (payload.occurrenceStart == occurrenceStart) {
+        await _gateway.cancel(request.id, tag: reminderId);
+      } else if (payload.at.isAfter(now)) {
+        kept.add((request: request, payload: payload));
+      }
+    }
+    kept.sort((a, b) => a.payload.at.compareTo(b.payload.at));
 
-    for (var index = 0; index < mine.length; index++) {
-      final (:request, :at) = mine[index];
+    for (var index = 0; index < kept.length; index++) {
+      final (:request, :payload) = kept[index];
+      final sameDayLater =
+          payload.occurrenceStart.isAfter(occurrenceStart) &&
+          LocalDate.fromDateTime(payload.occurrenceStart) == day;
       final renumbered = PlannedNotification(
         reminderId: reminderId,
-        at: at,
+        at: payload.at,
+        occurrenceStart: payload.occurrenceStart,
         title: request.title ?? '',
         body: request.body ?? defaultNotificationBody,
-        missedBefore: index,
-        replacedAfter: index + 1 < mine.length
-            ? mine[index + 1].at.difference(at)
+        missedBefore: sameDayLater && payload.missedBefore > 0
+            ? payload.missedBefore - 1
+            : payload.missedBefore,
+        replacedAfter: index + 1 < kept.length
+            ? kept[index + 1].payload.at.difference(payload.at)
             : null,
       );
       if (renumbered.payloadFor(exact: exact) != request.payload) {

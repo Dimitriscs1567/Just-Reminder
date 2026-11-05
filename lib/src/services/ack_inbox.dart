@@ -4,16 +4,16 @@ import 'package:home_widget/home_widget.dart';
 
 import 'widget_storage_keys.dart';
 
-/// Mailbox of acknowledgments, readable and writable from any isolate.
+/// Mailbox of Done marks ("acks"), readable and writable from any isolate.
 ///
-/// Every acknowledgment — from the app, a widget tap or a notification
-/// button — is logged here with its time. The app's sync replays the log
-/// into the database, which only the main isolate may touch.
+/// Every Done — from the app, a widget tap or a notification button — is
+/// logged here with its time. The app's sync replays the log into the
+/// database, which only the main isolate may touch.
 abstract interface class AckInbox {
-  /// Logged acknowledgment instants for [reminderId], oldest first.
+  /// Logged Done instants for [reminderId], oldest first.
   Future<List<DateTime>> read(String reminderId);
 
-  /// Logs an acknowledgment of [reminderId] at [at].
+  /// Logs a Done of [reminderId] at [at].
   Future<void> add(String reminderId, DateTime at);
 
   /// Forgets everything logged for [reminderId].

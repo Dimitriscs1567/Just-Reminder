@@ -74,7 +74,8 @@ class ReminderService {
   });
 
   /// Saves the user's edits. History is first brought up to date under the
-  /// old schedule; a waiting activation stays waiting until acknowledged.
+  /// old schedule; a time that is due stays due until it is done (or
+  /// missed: at its end, or when the new schedule's next time starts).
   Future<Reminder> update(Reminder edited) => _serialized(() async {
     final now = _clock();
     final current = await _sync(
@@ -96,8 +97,8 @@ class ReminderService {
     return updated;
   });
 
-  /// Pauses or resumes. A waiting activation stays waiting; resuming never
-  /// catches up on activations that fell inside the pause.
+  /// Pauses or resumes. A time that is due stays due (until done, or its
+  /// end); resuming never catches up on times that fell inside the pause.
   Future<void> setPaused(String id, {required bool paused}) =>
       _serialized(() async {
         final now = _clock();
@@ -117,14 +118,14 @@ class ReminderService {
         await _sideEffects.onRemindersChanged();
       });
 
-  /// Moves the reminder to the archive; a waiting activation is recorded as
+  /// Moves the reminder to the archive; a time that is due is recorded as
   /// missed. Its history is kept.
   Future<void> archive(String id) => _serialized(() async {
     final now = _clock();
     final current = await _require(id);
     if (current.isArchived) return;
     final reminder = await _sync(current, now, allowArchive: false);
-    final closed = closePendingAsMissed(await _runtimeOf(reminder));
+    final closed = closePendingAsMissed(await _runtimeOf(reminder), now);
     await _repository.save(
       reminder: reminder.copyWith(archivedAt: now, updatedAt: now),
       runtime: closed.runtime,
@@ -153,8 +154,10 @@ class ReminderService {
         final runtime = (await _runtimeOf(current)).copyWith(
           processedUntil: now,
           appliedAckUntil: now,
-          pendingAt: null,
+          pending: null,
+          missedDate: null,
           missedCount: 0,
+          last: null,
         );
         await _repository.save(reminder: restored, runtime: runtime);
         await _sideEffects.onRemindersChanged();
@@ -168,8 +171,8 @@ class ReminderService {
     await _sideEffects.onRemindersChanged();
   });
 
-  /// Acknowledges the reminder's waiting activation (from inside the app).
-  Future<void> acknowledge(String id) => _serialized(() async {
+  /// Marks the reminder's due time as done (from inside the app).
+  Future<void> markDone(String id) => _serialized(() async {
     final now = _clock();
     await _inbox.add(id, now);
     final reminder = await _repository.getReminder(id);
@@ -177,9 +180,9 @@ class ReminderService {
     await _sideEffects.onRemindersChanged();
   });
 
-  /// Brings every reminder up to "now": records activations that happened,
-  /// applies acknowledgments logged elsewhere (widget, notification) and
-  /// archives finished reminders.
+  /// Brings every reminder up to "now": records the times that became due
+  /// or were missed, applies Done marks logged elsewhere (widget,
+  /// notification) and archives finished reminders.
   Future<void> syncAll() => _serialized(() async {
     final now = _clock();
     for (final reminder in await _repository.getReminders()) {
@@ -208,7 +211,7 @@ class ReminderService {
       ReminderRuntime.initial(reminder.id, reminder.activeSince);
 
   /// Brings one reminder up to [now] and returns it — archived when it is
-  /// finished and nothing is waiting (unless [allowArchive] is false).
+  /// finished and nothing is due (unless [allowArchive] is false).
   Future<Reminder> _sync(
     Reminder reminder,
     DateTime now, {
@@ -220,31 +223,27 @@ class ReminderService {
       for (final at in await _inbox.read(reminder.id))
         if (at.isAfter(runtime.appliedAckUntil)) at,
     ];
-    final from = runtime.processedUntil.isAfter(reminder.activeSince)
-        ? runtime.processedUntil
-        : reminder.activeSince;
-    final activations = reminder.isLive
-        ? _engine.between(reminder.id, reminder.schedule, from, now)
-        : const <DateTime>[];
-
-    final advance = advanceRuntime(
+    final advance = advanceReminder(
+      reminder: reminder,
       runtime: runtime,
-      activations: activations,
+      engine: _engine,
+      now: now,
       acknowledgments: acknowledgments,
-      until: now,
     );
     final archive =
         allowArchive &&
-        !advance.runtime.isActive &&
+        !advance.runtime.isFiring &&
         _engine.isFinished(reminder, now);
     final result = archive
         ? reminder.copyWith(archivedAt: now, updatedAt: now)
         : reminder;
 
-    // Without new activations or acknowledgments only `processedUntil`
-    // would change; skipping that write is safe because the next sync
-    // re-scans the same (empty) span.
-    if (archive || activations.isNotEmpty || acknowledgments.isNotEmpty) {
+    // Without new history or Done marks only `processedUntil` would change;
+    // skipping that write is safe because the next sync re-scans the same
+    // (empty) span.
+    if (archive ||
+        advance.records.isNotEmpty ||
+        acknowledgments.isNotEmpty) {
       await _repository.save(
         reminder: archive ? result : null,
         runtime: advance.runtime,

@@ -1,14 +1,19 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/local_date.dart';
+import '../../domain/occurrence.dart';
 import '../formatting.dart';
 
-/// Activation times grouped by day:
-/// `Tomorrow        [9:00 AM] [10:00 AM]`.
-class ActivationTimes extends StatelessWidget {
-  const ActivationTimes({required this.times, required this.now, super.key});
+/// Upcoming times grouped by day, each shown once (with its end, if any):
+/// `Tomorrow        [09:00 – 12:00] [15:00]`.
+class OccurrenceTimes extends StatelessWidget {
+  const OccurrenceTimes({
+    required this.occurrences,
+    required this.now,
+    super.key,
+  });
 
-  final List<DateTime> times;
+  final List<Occurrence> occurrences;
   final DateTime now;
 
   @override
@@ -18,27 +23,27 @@ class ActivationTimes extends StatelessWidget {
     final formatter = TimeFormatter.of(context);
     final today = LocalDate.fromDateTime(now);
 
-    final groups = <(LocalDate, List<DateTime>)>[];
-    for (final at in times) {
-      final day = LocalDate.fromDateTime(at);
+    final groups = <(LocalDate, List<Occurrence>)>[];
+    for (final occurrence in occurrences) {
+      final day = occurrence.date;
       if (groups.isEmpty || groups.last.$1 != day) {
-        groups.add((day, [at]));
+        groups.add((day, [occurrence]));
       } else {
-        groups.last.$2.add(at);
+        groups.last.$2.add(occurrence);
       }
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final (day, dayTimes) in groups)
+        for (final (day, dayOccurrences) in groups)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 6),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SizedBox(
-                  width: 120,
+                  width: 110,
                   child: Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
@@ -53,7 +58,7 @@ class ActivationTimes extends StatelessWidget {
                     spacing: 6,
                     runSpacing: 6,
                     children: [
-                      for (final at in dayTimes)
+                      for (final occurrence in dayOccurrences)
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
@@ -64,7 +69,11 @@ class ActivationTimes extends StatelessWidget {
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
-                            formatter.instant(at),
+                            formatOccurrenceSpan(
+                              occurrence.start,
+                              occurrence.end,
+                              formatter,
+                            ),
                             style: theme.textTheme.labelLarge?.copyWith(
                               color: scheme.onTertiaryContainer,
                               fontFeatures: const [

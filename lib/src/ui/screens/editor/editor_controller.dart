@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/ids.dart';
+import '../../../core/local_time.dart';
+import '../../../domain/occurrence.dart';
 import '../../../domain/reminder.dart';
 import '../../../domain/validation.dart';
 import '../../../state/providers.dart';
@@ -77,6 +79,49 @@ class EditorController extends Notifier<EditorDraft> {
     state = state.copyWith(weekdays: days);
   }
 
+  /// Changes the time with [key]; the times stay in start order.
+  void editTime(int key, TimeDraft Function(TimeDraft time) change) =>
+      state = state.copyWith(
+        times: _ordered([
+          for (final time in state.times)
+            time.key == key ? change(time) : time,
+        ]),
+      );
+
+  /// Adds a time an hour after the last one (after its end, if it has one)
+  /// and returns its key.
+  int addTime() {
+    final times = state.times;
+    final key = times.fold(-1, (max, time) => time.key > max ? time.key : max) + 1;
+    final last = times.lastOrNull;
+    final after = last == null
+        ? const LocalTime(8, 0)
+        : last.hasEnd
+        ? last.endOrDefault
+        : last.start;
+    state = state.copyWith(
+      times: _ordered([
+        ...times,
+        TimeDraft(
+          key: key,
+          start: LocalTime.fromMinutes((after.minutesOfDay + 60) % 1440),
+        ),
+      ]),
+    );
+    return key;
+  }
+
+  /// Removes the time with [key], unless it is the only one.
+  void removeTime(int key) {
+    if (state.times.length <= 1) return;
+    state = state.copyWith(
+      times: [
+        for (final time in state.times)
+          if (time.key != key) time,
+      ],
+    );
+  }
+
   List<ValidationIssue> validate() => validateReminder(
     name: state.name,
     displayName: state.displayName,
@@ -84,10 +129,13 @@ class EditorController extends Notifier<EditorDraft> {
     schedule: state.schedule,
   );
 
-  /// The next activations of the form's schedule after [now].
-  List<DateTime> preview(DateTime now, {int count = 5}) => ref
+  /// The next times of the form's schedule that become due after [now].
+  List<Occurrence> preview(DateTime now, {int count = 5}) => ref
       .read(scheduleEngineProvider)
       .upcoming(state.id, state.schedule, now, count: count);
+
+  static List<TimeDraft> _ordered(List<TimeDraft> times) =>
+      times..sort((a, b) => a.start.compareTo(b.start));
 
   /// Saves the form (create, update or restore) and returns the reminder.
   /// Call [validate] first.

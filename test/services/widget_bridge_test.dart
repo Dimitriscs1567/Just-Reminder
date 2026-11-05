@@ -59,7 +59,7 @@ void main() {
         unit: RepeatUnit.day,
         startDate: LocalDate(2026, 11, 4),
       ),
-      timing: FixedTiming(LocalTime(9, 0)),
+      times: [ReminderTime(start: LocalTime(9, 0))],
     ),
     createdAt: now,
     updatedAt: now,
@@ -83,8 +83,15 @@ void main() {
     await bridge.publish(
       reminders: [reminder('a'), reminder('b', archivedAt: now)],
       runtimes: {
+        // 07:00 is due (until the next time, 09:00); one time was missed.
         'a': ReminderRuntime.initial('a', now).copyWith(
-          pendingAt: DateTime(2026, 11, 4, 7),
+          pending: PendingOccurrence(
+            date: const LocalDate(2026, 11, 4),
+            time: const ReminderTime(start: LocalTime(7, 0)),
+            start: DateTime(2026, 11, 4, 7),
+            dueAt: DateTime(2026, 11, 4, 7),
+          ),
+          missedDate: const LocalDate(2026, 11, 4),
           missedCount: 1,
         ),
       },
@@ -118,7 +125,7 @@ void main() {
     );
   });
 
-  test('Android redraws at the upcoming activations, soonest first', () async {
+  test('Android redraws when the next times become due, soonest first', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     await bridge.publish(
       reminders: [reminder('a')],

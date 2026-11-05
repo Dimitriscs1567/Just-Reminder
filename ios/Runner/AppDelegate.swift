@@ -9,14 +9,14 @@ import flutter_local_notifications
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     // Lets flutter_local_notifications show notifications while the app is
-    // open and receive taps and the Acknowledge action.
+    // open and receive taps and the Done action.
     UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     // Plugins for the background isolate that handles the notification's
-    // Acknowledge button while the app is not running.
+    // Done button while the app is not running.
     FlutterLocalNotificationsPlugin.setPluginRegistrantCallback { registry in
       GeneratedPluginRegistrant.register(with: registry)
     }

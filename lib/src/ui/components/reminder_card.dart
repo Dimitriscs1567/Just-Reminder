@@ -3,14 +3,15 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/local_date.dart';
+import '../../domain/occurrence_record.dart';
 import '../../state/reminder_views.dart';
 import '../formatting.dart';
 import '../reminder_actions.dart';
 import '../theme/app_theme.dart';
-import 'status_thumb.dart';
+import 'status_icon.dart';
 
-/// A reminder in a list: thumb, name, schedule and status. Waiting reminders
-/// get a red tint and a big Acknowledge button.
+/// A reminder in a list: status icon, name, schedule and status. A due
+/// reminder gets a soft teal tint and a Done button.
 class ReminderCard extends ConsumerWidget {
   const ReminderCard({required this.view, required this.now, super.key});
 
@@ -22,15 +23,13 @@ class ReminderCard extends ConsumerWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final status = context.statusColors;
-    final waiting = view.isWaiting;
+    final firing = view.isFiring;
+    final background = firing
+        ? status.dueContainer
+        : theme.cardTheme.color ?? scheme.surfaceContainerLow;
 
     return Card(
-      color: waiting
-          ? Color.alphaBlend(
-              status.negativeContainer.withValues(alpha: 0.55),
-              theme.cardTheme.color ?? scheme.surfaceContainerLow,
-            )
-          : null,
+      color: background,
       child: InkWell(
         onTap: () => context.push('/reminder/${view.id}'),
         child: Padding(
@@ -40,13 +39,15 @@ class ReminderCard extends ConsumerWidget {
             children: [
               Row(
                 children: [
-                  Hero(
-                    tag: 'thumb-${view.id}',
-                    child: StatusThumb(
-                      waiting: waiting,
-                      muted: !waiting && view.status != ReminderStatus.scheduled,
-                      size: 44,
-                    ),
+                  StatusIcon(
+                    kind: StatusIconKind.of(view.status),
+                    size: 44,
+                    surface: background,
+                    heroTag: statusHeroTag(view.id),
+                    onTap: firing
+                        ? () => markReminderDone(context, ref, view)
+                        : null,
+                    tooltip: firing ? 'Done' : null,
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -55,7 +56,9 @@ class ReminderCard extends ConsumerWidget {
                       children: [
                         Text(
                           view.reminder.name,
-                          style: theme.textTheme.titleMedium,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: firing ? status.onDueContainer : null,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -70,7 +73,9 @@ class ReminderCard extends ConsumerWidget {
                                 view.status == ReminderStatus.archived,
                           ),
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            color: scheme.onSurfaceVariant,
+                            color: firing
+                                ? status.onDueContainer
+                                : scheme.onSurfaceVariant,
                           ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -82,17 +87,17 @@ class ReminderCard extends ConsumerWidget {
                   ),
                 ],
               ),
-              if (waiting) ...[
+              if (firing) ...[
                 const SizedBox(height: 14),
                 FilledButton.icon(
                   style: FilledButton.styleFrom(
-                    backgroundColor: status.negative,
-                    foregroundColor: status.onNegative,
+                    backgroundColor: status.due,
+                    foregroundColor: status.onDue,
                     minimumSize: const Size.fromHeight(48),
                   ),
-                  onPressed: () => acknowledgeReminder(context, ref, view),
+                  onPressed: () => markReminderDone(context, ref, view),
                   icon: const Icon(Icons.check_rounded),
-                  label: const Text('Acknowledge'),
+                  label: const Text('Done'),
                 ),
               ],
             ],
@@ -103,7 +108,8 @@ class ReminderCard extends ConsumerWidget {
   }
 }
 
-/// One line saying where a reminder stands ("Next: Today · 14:30", …).
+/// One line saying where a reminder stands: "Due since 12:00",
+/// "Missed 12:00 · next tomorrow 09:00", "Done 11:04 · next 16:00", …
 class ReminderStatusLine extends StatelessWidget {
   const ReminderStatusLine({required this.view, required this.now, super.key});
 
@@ -116,17 +122,34 @@ class ReminderStatusLine extends StatelessWidget {
     final scheme = theme.colorScheme;
     final status = context.statusColors;
     final formatter = TimeFormatter.of(context);
+    final today = LocalDate.fromDateTime(now);
+    final nextAt = view.next?.start;
+    String next() => nextAt == null
+        ? ''
+        : ' · next ${formatInlineMoment(nextAt, now, formatter)}';
+    final last = view.lastToday;
 
     final (icon, text, color) = switch (view.status) {
-      ReminderStatus.waiting => (
-        Icons.notifications_active_rounded,
-        'Since ${formatCompactMoment(view.runtime.pendingAt!, now, formatter)}',
-        status.onNegativeContainer,
+      ReminderStatus.firing => (
+        Icons.notifications_active_outlined,
+        'Due since '
+            '${formatCompactMoment(view.due!.dueAt, now, formatter)}',
+        status.onDueContainer,
       ),
-      ReminderStatus.scheduled => (
+      ReminderStatus.missed => (
         Icons.schedule_rounded,
-        'Next: ${formatCompactMoment(view.nextActivation!, now, formatter)}',
-        scheme.primary,
+        'Missed ${formatter.instant(last!.start)}${next()}',
+        scheme.onSurfaceVariant,
+      ),
+      ReminderStatus.done when last?.status == OccurrenceStatus.done => (
+        Icons.schedule_rounded,
+        'Done ${formatter.instant(last!.at)}${next()}',
+        scheme.onSurfaceVariant,
+      ),
+      ReminderStatus.done => (
+        Icons.schedule_rounded,
+        'Next: ${formatCompactMoment(nextAt!, now, formatter)}',
+        scheme.onSurfaceVariant,
       ),
       ReminderStatus.paused => (
         Icons.pause_circle_outline_rounded,
@@ -135,12 +158,13 @@ class ReminderStatusLine extends StatelessWidget {
       ),
       ReminderStatus.ended => (
         Icons.event_busy_rounded,
-        'No more activations',
+        'No more reminders',
         scheme.onSurfaceVariant,
       ),
       ReminderStatus.archived => (
         Icons.inventory_2_outlined,
-        'Archived · ${formatDay(LocalDate.fromDateTime(view.reminder.archivedAt!), LocalDate.fromDateTime(now))}',
+        'Archived · '
+            '${formatDay(LocalDate.fromDateTime(view.reminder.archivedAt!), today)}',
         scheme.onSurfaceVariant,
       ),
     };
@@ -153,38 +177,43 @@ class ReminderStatusLine extends StatelessWidget {
           child: Text(
             text,
             style: theme.textTheme.labelLarge?.copyWith(color: color),
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
         ),
         if (view.missedCount > 0) ...[
           const SizedBox(width: 8),
-          MissedBadge(count: view.missedCount),
+          MissedBadge(count: view.missedCount, onDue: view.isFiring),
         ],
       ],
     );
   }
 }
 
-/// "2 missed" pill.
+/// "2 missed" pill, always neutral (never red). [onDue] adapts it to the
+/// teal background of a due reminder.
 class MissedBadge extends StatelessWidget {
-  const MissedBadge({required this.count, super.key});
+  const MissedBadge({required this.count, this.onDue = false, super.key});
 
   final int count;
+  final bool onDue;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final status = context.statusColors;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: status.negative,
+        color: onDue
+            ? status.due.withValues(alpha: 0.16)
+            : scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         '$count missed',
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: status.onNegative,
+          color: onDue ? status.onDueContainer : scheme.onSurfaceVariant,
           fontWeight: FontWeight.w700,
         ),
       ),

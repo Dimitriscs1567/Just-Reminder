@@ -11,19 +11,17 @@ import '../state/reminder_views.dart';
 /// User-facing reminder actions with their feedback (snackbars, dialogs),
 /// shared by all screens.
 
-Future<void> acknowledgeReminder(
+Future<void> markReminderDone(
   BuildContext context,
   WidgetRef ref,
   ReminderView view,
 ) async {
   unawaited(HapticFeedback.mediumImpact());
   final messenger = ScaffoldMessenger.of(context);
-  await ref.read(reminderServiceProvider).acknowledge(view.id);
+  await ref.read(reminderServiceProvider).markDone(view.id);
   messenger
     ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(content: Text('“${view.reminder.name}” acknowledged')),
-    );
+    ..showSnackBar(SnackBar(content: Text('“${view.reminder.name}” done')));
 }
 
 Future<void> setReminderPaused(
@@ -50,9 +48,9 @@ Future<void> archiveReminder(
 ) async {
   final messenger = ScaffoldMessenger.of(context);
   final service = ref.read(reminderServiceProvider);
-  // Undo restores cleanly only when nothing was waiting (archiving records
-  // a waiting activation as missed).
-  final canUndo = !view.isWaiting;
+  // Undo restores cleanly only when nothing was due (archiving records a
+  // due time as missed).
+  final canUndo = !view.isFiring;
   await service.archive(view.id);
   messenger
     ..hideCurrentSnackBar()

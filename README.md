@@ -1,15 +1,15 @@
 # Just Reminder
 
-A simple, beautiful reminder app for **Android and iOS**, built with Flutter.
-Set up reminders that fire once or on a repeating schedule, at a fixed time or
-inside a time range, and see at a glance on your home screen whether something
-needs your attention:
+A simple, calm reminder app for **Android and iOS**, built with Flutter.
+Set up reminders that come once or on a repeating schedule, at one or more
+times a day, and see at a glance whether something needs you:
 
-- 👍 **green** — nothing is waiting for you
-- 👎 **red** — a reminder fired and is waiting to be acknowledged
+- **due** — a teal ring with a thumbs-up: tap **Done** once you've done it
+- **missed** — a gray dashed ring: today's latest time passed without Done
+- **done** — a faint check: nothing to do right now
 
-A reminder stays active until you acknowledge it — in the app, on the home
-screen widget, or with the **Acknowledge** button on its notification.
+A reminder stays due until you mark it done — in the app, on the home screen
+widget, or with the **Done** button on its notification.
 
 > **Status:** feature complete. Android is tested on the emulator (debug and
 > release builds); the iOS code is written but has not been compiled yet —
@@ -29,7 +29,7 @@ Each reminder has:
 
 ### Scheduling
 
-**When it happens**
+**Which days**
 
 - **Once** — on a specific date.
 - **Repeat**
@@ -38,45 +38,54 @@ Each reminder has:
     only Sat & Sun every 2 weeks).
   - **Monthly** — every _N_ months on a day of the month (e.g. the 15th). A
     day that a month doesn't have (29th–31st) falls on that month's **last
-    day** (e.g. "the 31st" fires on Apr 30 and Feb 28/29).
+    day** (e.g. "the 31st" comes on Apr 30 and Feb 28/29).
   - Starts on a start date, with an optional **end date**.
 
-**What time**
+**What times** — one or more per day (up to 24). Each time is **one
+reminder**: done or missed as a whole, however often it notifies.
 
-- **Fixed time** — e.g. 09:00.
-- **Time range** — e.g. 09:00–17:00. An end time before the start time runs
-  past midnight (e.g. 22:00–02:00). Inside the range, choose:
-  - **Interval** — every _X_ minutes from the start of the range, until the
-    range ends, or until the optional _max activations_ is reached.
-  - **Random** — exactly _N_ activations at random times. The range is split
-    into _N_ equal slots with one random time in each, so activations never
-    bunch up. The times are fixed per day, so they don't move when the app
+- **Start** — when it begins, e.g. 09:00.
+- **End** _(optional)_ — e.g. 12:00. An end before the start runs past
+  midnight (e.g. 22:00–02:00); the time still belongs to the day it starts.
+  - _With an end_ it notifies only until the end and counts as **missed**
+    at the end if it isn't done.
+  - _Without an end_ it stays due until you mark it done, or until the
+    reminder's **next time starts** — then it counts as missed.
+- **How often it notifies**
+  - **Once** — a single notification at the start.
+  - **Repeat** — every _X_ minutes until it's done, optionally at most _N_
+    times (it stays due either way). With an end, repeats stop before the
+    end.
+  - **Random** _(with an end)_ — exactly _N_ notifications at random
+    moments: start to end is split into _N_ equal parts with one random
+    minute in each, so they never bunch up. It becomes due at the first
+    one. The times are fixed per day, so they don't move when the app
     restarts.
-- _Max activations_ always counts **per window** (e.g. per day).
-- In interval mode an activation that lands exactly on the range end counts
-  (09:00–17:00 every 60 min → 9 activations).
-- A one-time reminder with a time range stays within its date (or runs past
-  midnight as above).
+- Times can't overlap (one may start exactly when another ends), and a
+  day's times must fit within 24 hours, so they never run into the next
+  day's.
 
-While you set up a reminder, a **schedule preview** shows its next activation
-times, so you can check it is right.
+While you set up a reminder, a **preview** shows its next times, each once
+(e.g. `Tomorrow  09:00 – 12:00  15:00`), so you can check it is right.
 
-### Activation, acknowledgment and history
+### Due, done and missed
 
-- When a reminder activates you get a notification (title = display name,
-  text = description) with an **Acknowledge** button, and the reminder turns
-  red (👎) in the app and on its widget — also while the app is closed.
-- Swiping the notification away only hides it; the reminder **stays active**
-  until you acknowledge it.
-- If a new activation arrives while the previous one is still unacknowledged,
-  you are notified again. The previous one is recorded as **missed** in the
-  history, and the app, the widget and the new notification ("2 missed") show
-  how many were missed until you acknowledge the current one. On Android the
-  older notification is replaced by the new one; on iOS they are grouped.
-- Tapping a notification opens the reminder. Acknowledging from the
-  notification or the widget works without opening the app.
-- Every activation is kept in the reminder's **history** (acknowledged with
-  time / missed / active). History is kept forever.
+- When a time comes you get a notification (title = display name, text =
+  description) with a **Done** button, and the reminder shows as **due** in
+  the app and on its widget — also while the app is closed. Repeating times
+  notify again until you tap Done; on Android each new notification replaces
+  the previous one, on iOS they are grouped.
+- **Done** stops that time's notifications. Swiping a notification away only
+  hides it; the reminder stays due.
+- A time that ends — or, without an end, is followed by the next time —
+  without Done is recorded as **missed**. Until the next one is due the
+  reminder shows as missed.
+- The **missed count** ("2 missed", in gray) counts only the same day's
+  times, in every state; a new day starts clean.
+- Tapping a notification opens the reminder. Done from the notification or
+  the widget works without opening the app.
+- Every time is kept in the reminder's **history**, once (done with time /
+  missed / due). History is kept forever.
 
 ### Permissions
 
@@ -88,14 +97,16 @@ times, so you can check it is right.
 
 ### Pause, archive and delete
 
-- **Pause / resume** a reminder without deleting it. Editing or pausing a
-  reminder that is currently active keeps it active until you acknowledge
-  it; only future activations change.
-- **Archive** keeps a reminder and its history but it never fires again.
-  **Delete** removes the reminder and its history. Archiving a reminder that
-  is currently active records the waiting activation as missed.
-- Finished reminders (a one-time reminder after it fired, or a repeating one
-  past its end date) move to the **archive automatically** once acknowledged.
+- **Pause / resume** a reminder without deleting it. A paused reminder
+  sends no notifications and no new times come; a time that is due stays
+  due until you mark it done (or its end passes). Editing a reminder keeps
+  a due time due as well; only future times change.
+- **Archive** keeps a reminder and its history but it never reminds you
+  again. **Delete** removes the reminder and its history. Archiving a
+  reminder that is due records that time as missed.
+- Finished reminders (a one-time reminder after its last time, or a
+  repeating one past its end date) move to the **archive automatically**
+  once nothing is due.
 - In the archive you can view the history, **restore** a reminder (for a
   finished one-time reminder the editor opens so you can pick a new date) or
   delete it.
@@ -105,16 +116,17 @@ times, so you can check it is right.
 - **One widget per reminder**: when you add the widget, you pick which
   reminder it tracks. Add several widgets to track several reminders.
 - Shows the reminder's display name, a thumbs up (green) or thumbs down
-  (red), and how many activations were missed while one is waiting.
+  (red), and how many times were missed while one is due. _(Its new calm
+  look and a widget with several reminders are coming next.)_
 - _Android:_ **1×1 by default**: the thumb with a small missed-count bubble
   and the display name below it. Resize it to about 2×2 or larger for a
   bigger thumb and a **"N missed"** badge.
 - _iOS:_ the small widget size (iOS has no 1×1 home screen widgets), with a
   **"N missed"** badge.
-- Tap the thumbs down to acknowledge right from the home screen; tap
+- Tap the thumbs down to mark it done right from the home screen; tap
   anywhere else on the widget to open the reminder (straight to its
   details, also when the app wasn't running).
-- It turns red at activation time on its own, even when the app is closed.
+- It turns to due when a time comes, even when the app is closed.
 - If the reminder is archived or deleted, the widget shows an "Archived" or
   "Deleted" label instead of the thumb; tap it (Android) or long-press → Edit
   Widget (iOS) to pick another reminder.
@@ -129,18 +141,20 @@ times, so you can check it is right.
 
 ### Screens
 
-- **Home** — a summary card at the top ("All clear" with the next reminder,
-  or "2 reminders need you"), then _Needs attention_ (waiting reminders, each
-  with a big **Acknowledge** button and its missed count), _Coming up_
-  (sorted by next activation) and _Paused_.
+- **Home** — a summary card at the top ("2 reminders are due", or "Nothing
+  due" with the day's missed count and the next reminder), then _Due now_
+  (each with a **Done** button and its missed count), _Coming up_ (sorted by
+  their next time; "Done 11:04 · next 16:00", "Missed 12:00 · next …") and
+  _Paused_.
 - **New / edit reminder** — Details (name, display name, description), When
   (once or repeat: daily / weekly with weekday picker / monthly, every N,
-  start and optional end date), Time (fixed time or range with interval
-  presets or random count) and a live **preview** of the next activations.
-  The display name fills itself from the name until you change it. Closing
-  with unsaved changes asks before discarding them.
-- **Reminder details** — status panel (acknowledge, resume, or restore),
-  schedule with a pause switch, the next activations, and the full history
+  start and optional end date), Times (a row per time — tap it to set its
+  start, optional end and how it notifies; **Add time** adds one an hour
+  after the last) and a live **preview** of the next times. The display
+  name fills itself from the name until you change it. Closing with unsaved
+  changes asks before discarding them.
+- **Reminder details** — status panel (Done, resume, or restore), schedule
+  with all times and a pause switch, the next times, and the full history
   grouped by day. Archive and delete are in the ⋮ menu.
 - **Archive** — archived reminders; open one to restore or delete it.
 
@@ -148,9 +162,9 @@ times, so you can check it is right.
 
 Material 3 with **Material You**: on Android 12+ the app uses your wallpaper
 colors; elsewhere it falls back to an indigo & teal palette. Light and dark
-mode follow the phone's setting. Positive is always green and negative always
-red (they are not tinted by the wallpaper, so red never turns pink). The UI
-is in English; 12/24-hour time follows the phone's setting.
+mode follow the phone's setting. A due reminder is always the app's teal;
+missed and done are quiet grays — nothing turns red. The UI is in English;
+12/24-hour time follows the phone's setting.
 
 The **app icon** is a white bell with a green thumbs-up badge on teal. On
 Android 13+ it also has a single-colour version for themed icons; iOS 18
@@ -281,46 +295,51 @@ anything it reports.
 
 **First test on an iPhone** (the parts that can't be checked on Windows):
 
-1. Create a reminder a few minutes ahead, then **force-quit** the app. When
-   the notification arrives, tap **Acknowledge**, wait a few seconds and
-   reopen the app: the history must show that activation as acknowledged.
+1. Create a reminder a few minutes ahead with a time that repeats every
+   minute, then **force-quit** the app. When the notification arrives, tap
+   **Done**, wait a few seconds and reopen the app: the history must show
+   that time as done, and no more notifications for it may come.
 2. Add the widget and pick the reminder (long-press → **Edit Widget**). At
-   the next activation it turns red on its own; tapping the thumbs down
-   turns it green and clears the notification.
+   its next time it turns red on its own; tapping the thumbs down turns it
+   green, clears the notification and stops the time's repeats.
 3. Tap the widget elsewhere: the reminder opens in the app.
 
 The iOS widget needs no Flutter code: it reads the data the app stores in
-the App Group and acknowledges with an App Intent that runs in the widget
-extension.
+the App Group and marks reminders done with an App Intent that runs in the
+widget extension.
 
 ## How it works
 
 - **Everything stays on your device.** Reminders and their history live in
   a local [sembast](https://pub.dev/packages/sembast) database; nothing is
   sent anywhere.
-- A **schedule engine** (pure Dart, fully unit-tested) computes every
-  activation time from the reminder's schedule. Random times are derived
-  from the reminder and the day, so they never change once picked.
-- Acknowledging from the widget or a notification happens while the app may
-  be closed. Those acknowledgments are logged with their time and applied
-  to the history the next time the app runs, in the order they happened,
-  so the history is always correct.
+- A **schedule engine** (pure Dart, fully unit-tested) computes every time
+  of every day from the reminder's schedule: when it becomes due, when it
+  notifies and when it would be missed. Random times are derived from the
+  reminder, the day and the time, so they never change once picked.
+- Done from the widget or a notification happens while the app may be
+  closed. Those Done marks are logged with their time and applied to the
+  history the next time the app runs, in the order they happened, so the
+  history is always correct.
 - After every change the app writes a small **snapshot** per reminder for
-  the widgets (state + upcoming activation times) and reschedules the
-  notifications. With the upcoming times the widget can turn red by itself
-  at the right moment (Android redraws it at those times; iOS gets a
-  timeline entry for each).
+  the widgets (state + the next times) and reschedules the notifications.
+  With the next times the widget can turn to due by itself at the right
+  moment (Android redraws it at those times; iOS gets a timeline entry for
+  each).
 
 ## Known limitations
 
 - **iOS has not been compiled yet** (the code was written on Windows). Expect
   to fix small things in Xcode the first time.
-- **Activations are planned ahead while the app runs.** Notifications cover
-  the next 14 days, up to 200 on Android and 60 on iOS (which keeps at most
-  64), with each reminder getting its next 3 first. The widgets know up to
-  200 upcoming times per reminder. The app tops this up whenever it runs; with
-  very frequent reminders (e.g. every 5 minutes) it lasts only hours, so open
-  the app now and then.
+- **Notifications are planned ahead while the app runs.** They cover the
+  next 14 days, up to 200 on Android and 60 on iOS (which keeps at most 64),
+  with each reminder getting its next 3 first. The widgets know up to 200
+  upcoming times per reminder. The app tops this up whenever it runs; with
+  frequent repeats (e.g. every 5 minutes) it lasts only hours, so open the
+  app now and then.
+- **The widget doesn't show "missed" yet:** a time missed at its end still
+  shows as due on the widget until the app runs (the widgets get the three
+  states next).
 - **Time zone changes:** notifications and widget redraws are scheduled as
   exact moments. After moving to another time zone, open the app once and
   they move to the new local times.
@@ -335,19 +354,19 @@ lib/
                             entry point)
   src/
     app.dart                MaterialApp.router + Material You theme
-    background/             Acknowledge from a widget / notification without
-                            the app
+    background/             Done from a widget / notification without the
+                            app
     core/                   dates, times, stable hash, seeded random, ids
     domain/                 reminder & schedule models, schedule engine,
-                            missed/acknowledged state machine, validation
+                            due/done/missed state machine, validation
     data/                   sembast database and repository
     services/               ReminderService (all changes + sync), ack log,
                             notifications/, widget/ (snapshots for widgets)
     state/                  Riverpod providers (data, clock, view models)
     ui/
-      theme/                Material You theme + green/red status colors
+      theme/                Material You theme + teal status colors
       routing/              go_router configuration
-      components/           thumb, cards, steppers, pickers, banners, …
+      components/           status icon, cards, steppers, pickers, …
       screens/              home, editor, details, archive, widget config
       sync_scope.dart       keeps data current; handles notification and
                             widget taps

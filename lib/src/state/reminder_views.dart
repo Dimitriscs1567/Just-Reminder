@@ -1,56 +1,90 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../domain/occurrence.dart';
 import '../domain/reminder.dart';
 import '../domain/reminder_runtime.dart';
+import '../domain/reminder_standing.dart';
+import '../domain/runtime_advance.dart';
 import 'now.dart';
 import 'providers.dart';
 
 /// Where a reminder stands, as shown in the UI.
 enum ReminderStatus {
-  /// An activation is waiting for acknowledgment (thumbs down).
-  waiting,
+  /// A time is due (also while paused, until it is done or missed).
+  firing,
 
-  /// Nothing waiting; it will activate again (thumbs up).
-  scheduled,
+  /// Today's latest time was missed; nothing is due. It reminds again.
+  missed,
+
+  /// Nothing is due; it reminds again.
+  done,
 
   /// Switched off by the user.
   paused,
 
-  /// Nothing waiting and nothing upcoming; the next sync archives it.
+  /// Nothing due and nothing to come; the next sync archives it.
   ended,
 
   /// In the archive.
   archived,
 }
 
-/// A reminder together with its runtime state and next activation.
+/// A reminder with its state at "now".
 class ReminderView {
   const ReminderView({
     required this.reminder,
     required this.runtime,
-    required this.nextActivation,
+    required this.standing,
+    required this.next,
+    required this.dueMissesAt,
   });
 
   final Reminder reminder;
+
+  /// The runtime brought forward to "now" (what the next sync records).
   final ReminderRuntime runtime;
 
-  /// The next activation, or `null` when none is coming (paused, archived,
-  /// finished).
-  final DateTime? nextActivation;
+  final ReminderStanding standing;
+
+  /// The next time that will become due, or `null` when none is coming
+  /// (paused, archived, finished).
+  final Occurrence? next;
+
+  /// When the due time counts as missed, if one is due and that is known.
+  final DateTime? dueMissesAt;
 
   String get id => reminder.id;
 
-  bool get isWaiting => !reminder.isArchived && runtime.isActive;
+  bool get isFiring => status == ReminderStatus.firing;
 
-  /// Missed activations to show next to the waiting one.
-  int get missedCount => isWaiting ? runtime.missedCount : 0;
+  /// The time that is due.
+  PendingOccurrence? get due => isFiring ? standing.pending : null;
+
+  /// Missed times of the same day (none for archived reminders).
+  int get missedCount => reminder.isArchived ? 0 : standing.missedCount;
+
+  /// Today's latest finished time (done or missed), if any.
+  LastOutcome? get lastToday => standing.last;
 
   ReminderStatus get status {
     if (reminder.isArchived) return ReminderStatus.archived;
-    if (runtime.isActive) return ReminderStatus.waiting;
+    if (standing.phase == ReminderPhase.firing) return ReminderStatus.firing;
     if (reminder.paused) return ReminderStatus.paused;
-    if (nextActivation == null) return ReminderStatus.ended;
-    return ReminderStatus.scheduled;
+    if (next == null) return ReminderStatus.ended;
+    return standing.phase == ReminderPhase.missed
+        ? ReminderStatus.missed
+        : ReminderStatus.done;
+  }
+
+  /// When its state next changes on its own: its next time becomes due, or
+  /// the due one is missed.
+  DateTime? get nextChange {
+    if (reminder.isArchived) return null;
+    final due = next?.dueAt;
+    final missesAt = dueMissesAt;
+    if (due == null) return missesAt;
+    if (missesAt == null) return due;
+    return due.isBefore(missesAt) ? due : missesAt;
   }
 }
 
@@ -72,13 +106,29 @@ final reminderViewsProvider = Provider<AsyncValue<List<ReminderView>>>((ref) {
 
   return AsyncData([
     for (final reminder in reminders)
-      ReminderView(
-        reminder: reminder,
-        runtime:
+      () {
+        final stored =
             runtimes[reminder.id] ??
-            ReminderRuntime.initial(reminder.id, reminder.activeSince),
-        nextActivation: engine.upcomingFor(reminder, now).firstOrNull,
-      ),
+            ReminderRuntime.initial(reminder.id, reminder.activeSince);
+        final runtime = reminder.isArchived
+            ? stored
+            : advanceReminder(
+                reminder: reminder,
+                runtime: stored,
+                engine: engine,
+                now: now,
+              ).runtime;
+        final pending = runtime.pending;
+        return ReminderView(
+          reminder: reminder,
+          runtime: runtime,
+          standing: ReminderStanding.at(runtime, now),
+          next: engine.upcomingFor(reminder, now).firstOrNull,
+          dueMissesAt: pending == null || reminder.isArchived
+              ? null
+              : engine.missesAt(reminder, pending),
+        );
+      }(),
   ]);
 });
 
@@ -93,13 +143,13 @@ final reminderViewProvider = Provider.autoDispose
       }),
     );
 
-/// The soonest upcoming activation of any reminder, used to refresh the app
-/// exactly when something activates.
-final nextActivationProvider = Provider<DateTime?>((ref) {
+/// The soonest moment any reminder changes state on its own, used to sync
+/// (history, notifications, widgets) exactly then.
+final nextChangeProvider = Provider<DateTime?>((ref) {
   DateTime? earliest;
   final views = ref.watch(reminderViewsProvider).value ?? const <ReminderView>[];
   for (final view in views) {
-    final next = view.nextActivation;
+    final next = view.nextChange;
     if (next != null && (earliest == null || next.isBefore(earliest))) {
       earliest = next;
     }

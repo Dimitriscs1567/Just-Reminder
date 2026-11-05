@@ -1,12 +1,13 @@
 import 'package:material_ui/material_ui.dart';
 
 /// Brand colors. Material You (wallpaper colors) replaces the indigo/teal
-/// pair on Android 12+; positive and negative always stay green and red.
+/// pair on Android 12+; a due reminder always stays teal ([StatusColors]).
 abstract final class BrandColors {
   static const indigo = Color(0xFF4F46E5);
   static const teal = Color(0xFF14B8A6);
-  static const positive = Color(0xFF1E8E3E);
-  static const negative = Color(0xFFD93025);
+
+  /// The app's main teal (the end of the icon's gradient).
+  static const dueTeal = Color(0xFF0F766E);
 }
 
 /// The indigo & teal scheme used when the platform has no dynamic colors.
@@ -109,87 +110,50 @@ ThemeData buildAppTheme(ColorScheme scheme) {
   );
 }
 
-/// Positive (green, thumbs up) and negative (red, thumbs down) colors as
-/// Material 3 tonal roles: a strong color for the thumb and buttons, and a
-/// soft container for backgrounds. They are deliberately *not* harmonized
-/// with the wallpaper colors, which would push red towards pink.
+/// The colors of a due (firing) reminder: the app's teal, deliberately the
+/// same with or without wallpaper colors. A strong color for the ring,
+/// thumb and Done button, a soft container for backgrounds. Missed and done
+/// use the scheme's neutral colors (`outline`, `onSurfaceVariant`), never
+/// red or green.
 class StatusColors extends ThemeExtension<StatusColors> {
   const StatusColors({
-    required this.positive,
-    required this.onPositive,
-    required this.positiveContainer,
-    required this.onPositiveContainer,
-    required this.negative,
-    required this.onNegative,
-    required this.negativeContainer,
-    required this.onNegativeContainer,
+    required this.due,
+    required this.onDue,
+    required this.dueContainer,
+    required this.onDueContainer,
   });
 
-  factory StatusColors.forScheme(ColorScheme scheme) {
-    ColorScheme tones(Color seed, DynamicSchemeVariant variant) =>
-        ColorScheme.fromSeed(
-          seedColor: seed,
-          brightness: scheme.brightness,
-          dynamicSchemeVariant: variant,
+  factory StatusColors.forScheme(ColorScheme scheme) =>
+      scheme.brightness == Brightness.light
+      ? const StatusColors(
+          due: BrandColors.dueTeal,
+          onDue: Colors.white,
+          dueContainer: Color(0xFFD5F5EE),
+          onDueContainer: Color(0xFF04342C),
+        )
+      : const StatusColors(
+          due: Color(0xFF2DD4BF),
+          onDue: Color(0xFF00201C),
+          dueContainer: Color(0xFF113F3A),
+          onDueContainer: Color(0xFFB4F2E6),
         );
-    // Solid colors (thumb, buttons, badges) are vivid; backgrounds use the
-    // calmer tonal containers (the vivid ones turn neon green).
-    final positive = tones(BrandColors.positive, DynamicSchemeVariant.vibrant);
-    final negative = tones(BrandColors.negative, DynamicSchemeVariant.vibrant);
-    final positiveSoft = tones(
-      BrandColors.positive,
-      DynamicSchemeVariant.tonalSpot,
-    );
-    final negativeSoft = tones(
-      BrandColors.negative,
-      DynamicSchemeVariant.tonalSpot,
-    );
-    // In dark mode the solid colors stay saturated mid-tones with white
-    // content; Material's dark-mode tones look washed out (red) or neon
-    // (green).
-    final light = scheme.brightness == Brightness.light;
-    return StatusColors(
-      positive: light ? positive.primary : BrandColors.positive,
-      onPositive: light ? positive.onPrimary : Colors.white,
-      positiveContainer: positiveSoft.primaryContainer,
-      // Text from the vivid palette stays clearly green/red (the tonal one
-      // drifts towards brown).
-      onPositiveContainer: positive.onPrimaryContainer,
-      negative: light ? negative.primary : BrandColors.negative,
-      onNegative: light ? negative.onPrimary : Colors.white,
-      negativeContainer: negativeSoft.primaryContainer,
-      onNegativeContainer: negative.onPrimaryContainer,
-    );
-  }
 
-  final Color positive;
-  final Color onPositive;
-  final Color positiveContainer;
-  final Color onPositiveContainer;
-  final Color negative;
-  final Color onNegative;
-  final Color negativeContainer;
-  final Color onNegativeContainer;
+  final Color due;
+  final Color onDue;
+  final Color dueContainer;
+  final Color onDueContainer;
 
   @override
   StatusColors copyWith({
-    Color? positive,
-    Color? onPositive,
-    Color? positiveContainer,
-    Color? onPositiveContainer,
-    Color? negative,
-    Color? onNegative,
-    Color? negativeContainer,
-    Color? onNegativeContainer,
+    Color? due,
+    Color? onDue,
+    Color? dueContainer,
+    Color? onDueContainer,
   }) => StatusColors(
-    positive: positive ?? this.positive,
-    onPositive: onPositive ?? this.onPositive,
-    positiveContainer: positiveContainer ?? this.positiveContainer,
-    onPositiveContainer: onPositiveContainer ?? this.onPositiveContainer,
-    negative: negative ?? this.negative,
-    onNegative: onNegative ?? this.onNegative,
-    negativeContainer: negativeContainer ?? this.negativeContainer,
-    onNegativeContainer: onNegativeContainer ?? this.onNegativeContainer,
+    due: due ?? this.due,
+    onDue: onDue ?? this.onDue,
+    dueContainer: dueContainer ?? this.dueContainer,
+    onDueContainer: onDueContainer ?? this.onDueContainer,
   );
 
   @override
@@ -197,14 +161,10 @@ class StatusColors extends ThemeExtension<StatusColors> {
     if (other == null) return this;
     Color mix(Color a, Color b) => Color.lerp(a, b, t)!;
     return StatusColors(
-      positive: mix(positive, other.positive),
-      onPositive: mix(onPositive, other.onPositive),
-      positiveContainer: mix(positiveContainer, other.positiveContainer),
-      onPositiveContainer: mix(onPositiveContainer, other.onPositiveContainer),
-      negative: mix(negative, other.negative),
-      onNegative: mix(onNegative, other.onNegative),
-      negativeContainer: mix(negativeContainer, other.negativeContainer),
-      onNegativeContainer: mix(onNegativeContainer, other.onNegativeContainer),
+      due: mix(due, other.due),
+      onDue: mix(onDue, other.onDue),
+      dueContainer: mix(dueContainer, other.dueContainer),
+      onDueContainer: mix(onDueContainer, other.onDueContainer),
     );
   }
 }

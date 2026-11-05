@@ -71,9 +71,12 @@ enum WidgetStore {
     return total > 0 ? .waiting(missed: total - 1) : .clear
   }
 
-  /// Acknowledges from the widget, like `acknowledgeInBackground` in Dart:
-  /// logs it for the app's next sync and marks nothing as waiting.
-  static func acknowledge(_ reminderId: String, at date: Date) {
+  /// Marks the reminder done from the widget, like `markDoneInBackground`
+  /// in Dart: logs it for the app's next sync and marks nothing as due.
+  /// Returns the start (epoch ms) of the time it finished, if one was due
+  /// (`dueOccurrenceStartAt` in Dart), for `NotificationCleanup`.
+  @discardableResult
+  static func markDone(_ reminderId: String, at date: Date) -> Int64? {
     let now = millis(date)
 
     var acknowledgments = (json(forKey: acknowledgmentsKey(reminderId)) as? [Any] ?? [])
@@ -85,12 +88,33 @@ enum WidgetStore {
     }
     setJSON(acknowledgments, forKey: acknowledgmentsKey(reminderId))
 
-    guard var snapshot = loadSnapshot(reminderId) else { return }
+    guard var snapshot = loadSnapshot(reminderId) else { return nil }
+    let finished = dueOccurrenceStart(snapshot, at: now)
     snapshot["asOf"] = now
     snapshot["pendingAt"] = NSNull()
     snapshot["missedCount"] = 0
+    snapshot["pending"] = NSNull()
     snapshot["upcoming"] = upcoming(snapshot).filter { $0 > now }
+    snapshot["occurrences"] = occurrences(snapshot).filter { (int64($0["due"]) ?? 0) > now }
     setJSON(snapshot, forKey: snapshotKey(reminderId))
+    return finished
+  }
+
+  /// The start of the latest time due at `now` (the snapshot's `pending`
+  /// or one of its `occurrences`), unless it was already missed.
+  static func dueOccurrenceStart(_ snapshot: [String: Any], at now: Int64) -> Int64? {
+    var candidates = occurrences(snapshot)
+    if let pending = snapshot["pending"] as? [String: Any] { candidates.append(pending) }
+    let latest = candidates
+      .filter { (int64($0["due"]) ?? Int64.max) <= now }
+      .max { (int64($0["due"]) ?? 0) < (int64($1["due"]) ?? 0) }
+    guard let latest else { return nil }
+    if let missesAt = int64(latest["missesAt"]), missesAt <= now { return nil }
+    return int64(latest["start"])
+  }
+
+  private static func occurrences(_ snapshot: [String: Any]) -> [[String: Any]] {
+    snapshot["occurrences"] as? [[String: Any]] ?? []
   }
 
   static func date(fromMillis value: Int64) -> Date {

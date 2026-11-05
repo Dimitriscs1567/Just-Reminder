@@ -44,9 +44,9 @@ class AppSideEffects implements ReminderSideEffects {
     }
 
     try {
-      final waitingSince = {
+      final dueStarts = {
         for (final MapEntry(key: id, value: runtime) in runtimes.entries)
-          id: ?runtime.pendingAt,
+          id: ?runtime.pending?.start,
       };
       await _notifications.scheduler.apply(
         planNotifications(
@@ -57,11 +57,11 @@ class AppSideEffects implements ReminderSideEffects {
           budget: _notifications.budget,
         ),
         now: now,
-        waitingSince: waitingSince,
+        dueStarts: dueStarts,
         exact: await _notifications.canScheduleExact(),
       );
       await _notifications.scheduler.clearDeliveredExcept(
-        waitingSince.keys.toSet(),
+        dueStarts.keys.toSet(),
       );
     } on Object catch (error, stack) {
       debugPrint('Notification update failed: $error\n$stack');

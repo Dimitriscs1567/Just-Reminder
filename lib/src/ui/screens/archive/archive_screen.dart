@@ -38,7 +38,7 @@ class ArchiveScreen extends ConsumerWidget {
               ? Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Text(
-                    'Archived reminders never activate. Open one to restore '
+                    'Archived reminders never remind you. Open one to restore '
                     'or delete it — its history is kept.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
