@@ -44,6 +44,11 @@ final widgetBridgeProvider = Provider<WidgetBridge>(
   (ref) => const WidgetBridge(),
 );
 
+/// Called once the first sync is done and the reminders are loaded. `main()`
+/// keeps the launch screen up until then, so the first frame already shows
+/// the right screen and states. `null` in tests.
+final startupReadyProvider = Provider<void Function()?>((ref) => null);
+
 /// Notification taps, widget clicks and other outside requests.
 final appEventsProvider = Provider<AppEvents>((ref) {
   final events = AppEvents();

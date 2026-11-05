@@ -42,7 +42,7 @@ class _SyncScopeState extends ConsumerState<SyncScope> {
     );
     final events = ref.read(appEventsProvider);
     _events = events.stream.listen(_handle);
-    unawaited(_sync());
+    unawaited(_startup());
     final launch = events.takeLaunchEvent();
     if (launch != null) {
       // After the first frame, so the router is ready.
@@ -62,6 +62,24 @@ class _SyncScopeState extends ConsumerState<SyncScope> {
   void _onResume() {
     ref.invalidate(notificationPermissionsProvider);
     unawaited(_sync());
+  }
+
+  /// The first sync. The launch screen stays up until it is done and the
+  /// reminders are loaded, so no blank (loading) or outdated frame shows —
+  /// e.g. a widget's reminder opens already showing it is waiting.
+  Future<void> _startup() async {
+    final ready = ref.read(startupReadyProvider);
+    try {
+      await _sync();
+      if (mounted) {
+        await Future.wait([
+          ref.read(remindersProvider.future),
+          ref.read(runtimesProvider.future),
+        ]);
+      }
+    } finally {
+      ready?.call();
+    }
   }
 
   Future<void> _sync() async {
@@ -90,7 +108,11 @@ class _SyncScopeState extends ConsumerState<SyncScope> {
       case OpenReminder(:final reminderId):
         // Make sure a just-fired activation shows as waiting.
         await _sync();
-        router.go('/reminder/$reminderId');
+        final location = reminderLocation(reminderId);
+        // When this event launched the app, the router started there.
+        if (router.routerDelegate.currentConfiguration.uri.path != location) {
+          router.go(location);
+        }
       case AcknowledgeReminder(:final reminderId):
         await ref.read(reminderServiceProvider).acknowledge(reminderId);
       case ExplainWidgetEditing():

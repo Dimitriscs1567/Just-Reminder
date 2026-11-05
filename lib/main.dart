@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,7 +17,20 @@ import 'src/state/providers.dart';
 import 'src/ui/screens/widget_config/widget_configuration_app.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  final binding = WidgetsFlutterBinding.ensureInitialized();
+  // The launch screen stays up until the first sync is done and the
+  // reminders are loaded (SyncScope), so the first frame is complete and
+  // current. Never longer than a few seconds, whatever happens.
+  binding.deferFirstFrame();
+  var firstFrameAllowed = false;
+  void allowFirstFrame() {
+    if (firstFrameAllowed) return;
+    firstFrameAllowed = true;
+    binding.allowFirstFrame();
+  }
+
+  Timer(const Duration(seconds: 3), allowFirstFrame);
+
   // iOS: widget data lives in the App Group shared with the widget.
   await HomeWidget.setAppGroupId(iosAppGroupId);
 
@@ -57,6 +72,7 @@ Future<void> main() async {
         databaseProvider.overrideWithValue(database),
         notificationServiceProvider.overrideWithValue(notifications),
         appEventsProvider.overrideWithValue(events),
+        startupReadyProvider.overrideWithValue(allowFirstFrame),
       ],
       child: const JustReminderApp(),
     ),

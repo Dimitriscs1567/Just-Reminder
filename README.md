@@ -112,7 +112,8 @@ times, so you can check it is right.
 - _iOS:_ the small widget size (iOS has no 1×1 home screen widgets), with a
   **"N missed"** badge.
 - Tap the thumbs down to acknowledge right from the home screen; tap
-  anywhere else on the widget to open the reminder.
+  anywhere else on the widget to open the reminder (straight to its
+  details, also when the app wasn't running).
 - It turns red at activation time on its own, even when the app is closed.
 - If the reminder is archived or deleted, the widget shows an "Archived" or
   "Deleted" label instead of the thumb; tap it (Android) or long-press → Edit
@@ -215,6 +216,9 @@ flutter test tool/app_icon/generate_app_icon_test.dart
   its reminder runs a small Flutter screen in `WidgetConfigurationActivity`.
 - The notification icon `res/drawable/ic_stat_reminder.xml` is kept in
   release builds by `res/raw/keep.xml`.
+- Flutter's built-in deep linking is turned off
+  (`flutter_deeplinking_enabled` in `AndroidManifest.xml`): widget links
+  are handled by the app itself.
 - Some manufacturers (e.g. Xiaomi, Huawei) stop background work
   aggressively; if notifications arrive late, allow the app to run in the
   background (see [dontkillmyapp.com](https://dontkillmyapp.com)).
@@ -224,7 +228,9 @@ flutter test tool/app_icon/generate_app_icon_test.dart
 - Bundle ID: `com.example.justReminder` (placeholder — change it in Xcode
   before publishing, and the App Group with it).
 - The app is set up for notifications (`ios/Runner/AppDelegate.swift`) and
-  the `justreminder://` URL scheme (`Info.plist`).
+  the `justreminder://` URL scheme (`Info.plist`). Flutter's built-in deep
+  linking is off (`FlutterDeepLinkingEnabled` = NO in `Info.plist`): widget
+  links are handled by the app itself.
 - iOS keeps at most 64 scheduled notifications per app, so the app schedules
   the next ones and tops them up whenever it runs.
 

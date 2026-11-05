@@ -97,10 +97,86 @@ More gotchas:
   before `find`.
 - `dart format` has never been applied (about 30 files would change); don't
   reformat whole files as part of unrelated changes.
+- Flutter's deep linking is **on by default** (no manifest/plist entry
+  needed): Android hands the whole intent URI to the framework as the
+  initial route and on `onNewIntent`; iOS does it on a cold start (when the
+  app runs, home_widget claims `?homeWidget` URLs first). go_router turned
+  `justreminder://reminder/<id>` into the unknown path `/<id>` and showed
+  its error page until `SyncScope` navigated. It is now off
+  (`flutter_deeplinking_enabled` on both Android activities,
+  `FlutterDeepLinkingEnabled` in Info.plist); home_widget still gets the
+  URLs through its own callbacks. Keep it off unless the router learns the
+  URL forms.
+- The emulator's installed debug APK can end up corrupt ("Can't load Kernel
+  binary: Invalid kernel binary" in logcat, stuck on the splash): reinstall
+  it. A snapshot boot can hang too (qemu idle): `emulator -avd Medium_Phone
+  -no-snapshot-load`.
 
 ## Product decisions
 
 Agreed with the user on 2026-11-04. These are the spec.
+
+### Revisions agreed on 2026-11-05 (steps 6–8)
+
+These override the older decisions below where they conflict. Steps 7 and
+8 implement them; fold them into the sections below as each step lands.
+
+**Times** (replaces *Schedule — time*: no more "fixed time" vs "time range")
+- A reminder has **one or more times**. Each time has a **start**, an
+  **optional end** (`end < start` → past midnight) and **how often to
+  notify**: *Only once*, *Every X minutes* (with an optional **max number of
+  notifications**, as before) or — only with an end time — *Random*: exactly
+  N notifications, start–end split into N equal parts with one random time
+  in each (deterministic per reminder and date, as before).
+- Each time is **one reminder** (one history entry). It becomes due at its
+  **first notification** (the start; with Random the first random time) and
+  notifications repeat until it is **Done**, which stops its remaining
+  notifications.
+- **Without an end time** it stays due and keeps notifying until Done or
+  until the reminder's **next time starts**, where it is recorded as
+  **missed**. The optional max only limits the notifications; it stays due
+  either way (a one-time reminder's last time stays due until Done).
+- **With an end time** it notifies only within start–end and is recorded as
+  **missed at the end time** if it isn't Done.
+- Times must **not overlap**; **back-to-back is allowed** (a time may start
+  exactly when the previous one ends; the earlier one then sends no
+  notification at that instant). All times together must fit in **one
+  day**: the last end may not run past the first start of the next day.
+- Every list (history, coming up, editor preview, cards) shows each time
+  **once** (as `09:00–17:00` when it has an end), done or not.
+
+**States** (replaces the thumbs-down and missed rules of *Activation and
+acknowledgment*)
+- Three states, the same in the app and on the widgets: **firing** (a time
+  is due), **missed** (the latest time was missed and nothing is firing),
+  **done** (nothing due: everything done, or nothing has happened yet that
+  day).
+- The **missed count** counts only the missed times of the **same day** and
+  shows in all three states (Done no longer resets it). A new day **starts
+  clean** (done, no count) until its first time; a time still firing from
+  the previous evening keeps showing as firing.
+
+**Wording:** the UI never says "activation" — it says **reminder** — and
+**Done** replaces "Acknowledge" (buttons, notification action, history).
+
+**Look** (replaces the green/red thumbs; chosen from mockups)
+- Firing: teal (the app's main color) tint and a ring with a **thumbs-up**
+  inside; tapping it marks Done. Missed: gray **dashed ring** with a
+  thumbs-up crossed by a dashed line. Done: a **faint check**. The missed
+  count is a neutral gray bubble, never red.
+- Home screen widget: done is a **translucent** tile that blends into the
+  wallpaper.
+
+**List widget** (new, Android and iOS): the user picks several reminders in
+its setup and they are shown in the **order picked** (tick order, drag to
+reorder). One row per reminder: state icon, display name, status;
+resizable; on Android it scrolls when they don't fit. An archived or
+deleted reminder keeps its row with a neutral "Archived" / "Deleted" label.
+
+**Bug (step 6):** tapping a widget showed a go_router error page for a
+moment before the reminder opened.
+
+### Original decisions (2026-11-04)
 
 **Reminder fields**
 - `name` (required) — shown in the app.
@@ -421,9 +497,20 @@ launch), `AcknowledgeReminder` (button while running),
 - `SyncScope` (in `MaterialApp.router`'s builder) runs `syncAll()` on
   start, on resume (`AppLifecycleListener`) and with a timer at the next
   activation (+1 s).
+- `main()` calls `deferFirstFrame()`: the launch screen stays up until
+  `SyncScope`'s first sync is done and `remindersProvider` /
+  `runtimesProvider` have loaded (it then calls `startupReadyProvider`,
+  which `main()` overrides with `allowFirstFrame`; a 3 s timer is the
+  fallback). So the first visible frame is complete and current — no
+  loading spinner, no outdated state. `startupReadyProvider` is `null` in
+  tests (no deferral there).
 - `routerProvider` (GoRouter per ProviderScope): `/`, `/new`, `/archive`,
   `/reminder/:id`, `/reminder/:id/edit[?mode=restore]`. Editors are
-  full-screen dialogs.
+  full-screen dialogs. When a widget or notification launched the app
+  (`AppEvents.launchEvent` set in `main()` before `runApp`), the router's
+  `initialLocation` is that reminder, so the first frame is its details;
+  `SyncScope` then syncs and skips navigating when already there. Running
+  app: `SyncScope` syncs, then `go`es to the reminder.
 - Editor: `EditorDraft` (flat, immutable form state) +
   `EditorController` (`editorProvider(EditorTarget)` —
   `(mode: create|edit|restore, reminderId:)`). The draft id is generated
@@ -530,3 +617,23 @@ launch), `AcknowledgeReminder` (button while running),
   `tool/app_icon` for Android (adaptive, themed, Android 7 PNGs) and iOS
   (light, dark, tinted). Checked on the emulator: app drawer, dock, and the
   themed ("Minimal") icon preview. iOS icons not checked in Xcode.
+- [x] **Step 6 — Widget tap without the go_router error** (2026-11-05):
+  Flutter's deep linking turned off (Android activities, iOS Info.plist),
+  so `justreminder://` links no longer reach go_router; a launch from a
+  widget or notification starts the router at the reminder; the launch
+  screen stays up until the first sync and the data are loaded. 121
+  tests (new: first frame of a widget launch is the reminder). Verified
+  on the Android emulator with screen captures: the last commit showed
+  go_router's "Page Not Found — no routes for location:
+  justreminder://reminder/…?homeWidget" for several frames on a cold
+  start; now cold start goes splash → reminder (current state), warm
+  start goes straight to the reminder, Back leads to the list, the
+  archived widget still opens "Choose a reminder". iOS not run.
+- [ ] **Step 7 — Times and states in the app**: several times per reminder
+  (start, optional end, once / every X with optional max / random N), one
+  history entry per time, firing / missed / done with the same-day missed
+  count, notifications repeating until Done or missed, "reminder" and
+  "Done" wording, the new look in the app. The widgets keep working on the
+  new data but get their new look in step 8.
+- [ ] **Step 8 — Widgets**: the single widget's three states and new look,
+  and the new list widget with several reminders (Android and iOS).

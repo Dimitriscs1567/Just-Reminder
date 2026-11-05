@@ -27,18 +27,18 @@ final class ExplainWidgetEditing extends AppEvent {
 /// Delivers [AppEvent]s from plugin callbacks (set up in `main`) to the UI.
 class AppEvents {
   final _controller = StreamController<AppEvent>.broadcast();
-  AppEvent? _launch;
 
   Stream<AppEvent> get stream => _controller.stream;
 
   void add(AppEvent event) => _controller.add(event);
 
-  /// The event that launched the app, if any; handled once.
-  set launchEvent(AppEvent? event) => _launch = event;
+  /// The event that launched the app, if any. The router starts at its
+  /// reminder; `SyncScope` handles it once ([takeLaunchEvent]).
+  AppEvent? launchEvent;
 
   AppEvent? takeLaunchEvent() {
-    final event = _launch;
-    _launch = null;
+    final event = launchEvent;
+    launchEvent = null;
     return event;
   }
 

@@ -1,7 +1,13 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_reminder/src/app.dart';
 import 'package:just_reminder/src/core/local_date.dart';
 import 'package:just_reminder/src/core/local_time.dart';
 import 'package:just_reminder/src/domain/schedule.dart';
+import 'package:just_reminder/src/services/app_events.dart';
+import 'package:just_reminder/src/ui/routing/app_router.dart';
+import 'package:just_reminder/src/ui/screens/details/reminder_details_screen.dart';
+import 'package:just_reminder/src/ui/screens/home/home_screen.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../support/test_app.dart';
@@ -296,6 +302,56 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('“Call mom” restored'), findsOneWidget);
     expect(find.text('All clear'), findsOneWidget);
+    await harness.dispose(tester);
+  });
+
+  testWidgets('a widget that launches the app opens its reminder at once', (
+    tester,
+  ) async {
+    final harness = await TestHarness.create(
+      tester,
+      now: DateTime(2026, 11, 4, 8),
+    );
+    final reminder = await tester.runAsync(
+      () => harness.service.create(
+        name: 'Drink water',
+        displayName: 'Water',
+        schedule: dailyAtNine,
+      ),
+    );
+    final events = AppEvents()..launchEvent = OpenReminder(reminder!.id);
+    var startupReady = 0;
+    await harness.pumpApp(
+      tester,
+      events: events,
+      settle: false,
+      onStartupReady: () => startupReady++,
+    );
+
+    // The very first frame is the reminder: no list, no router error page.
+    final router = ProviderScope.containerOf(
+      tester.element(find.byType(JustReminderApp)),
+    ).read(routerProvider);
+    expect(
+      router.routerDelegate.currentConfiguration.uri.path,
+      '/reminder/${reminder.id}',
+    );
+    expect(find.byType(ReminderDetailsScreen), findsOneWidget);
+    expect(find.byType(HomeScreen), findsNothing);
+
+    await tester.pumpAndSettle();
+    // Synced and loaded: main() lets the first frame through now.
+    expect(startupReady, 1);
+    expect(find.text('Drink water'), findsOneWidget);
+    expect(
+      router.routerDelegate.currentConfiguration.uri.path,
+      '/reminder/${reminder.id}',
+    );
+
+    // Back leads to the list.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Coming up · 1'), findsOneWidget);
     await harness.dispose(tester);
   });
 }

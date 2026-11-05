@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:just_reminder/src/app.dart';
 import 'package:just_reminder/src/data/reminder_repository.dart';
 import 'package:just_reminder/src/services/ack_inbox.dart';
+import 'package:just_reminder/src/services/app_events.dart';
 import 'package:just_reminder/src/services/reminder_service.dart';
 import 'package:just_reminder/src/state/now.dart';
 import 'package:just_reminder/src/state/providers.dart';
@@ -37,7 +38,16 @@ class TestHarness {
     clock: () => now,
   );
 
-  Future<void> pumpApp(WidgetTester tester) async {
+  /// Starts the app. [events] lets a test launch it from a widget or
+  /// notification (`AppEvents.launchEvent`); with [settle] false only the
+  /// first frame is pumped. [onStartupReady] is what `main()` uses to let
+  /// the first frame through.
+  Future<void> pumpApp(
+    WidgetTester tester, {
+    AppEvents? events,
+    bool settle = true,
+    void Function()? onStartupReady,
+  }) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -45,11 +55,14 @@ class TestHarness {
           ackInboxProvider.overrideWithValue(inbox),
           clockProvider.overrideWithValue(() => now),
           nowProvider.overrideWith(() => _TestNow(() => now)),
+          if (events != null) appEventsProvider.overrideWithValue(events),
+          if (onStartupReady != null)
+            startupReadyProvider.overrideWithValue(onStartupReady),
         ],
         child: const JustReminderApp(),
       ),
     );
-    await tester.pumpAndSettle();
+    if (settle) await tester.pumpAndSettle();
   }
 
   /// Tears the app down (cancelling its timers) and closes the database.
